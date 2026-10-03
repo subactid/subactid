@@ -1,0 +1,41 @@
+version: 2
+# Every ecosystem's version updates arrive together as one pull request a week, and only once a
+# release has been out for a week: a hijacked release is usually caught and pulled within days.
+# Security updates are separate: they are neither grouped nor held back.
+multi-ecosystem-groups:
+  dependencies:
+    schedule: { interval: weekly }
+updates:
+  - package-ecosystem: nuget
+    directory: "/"
+    multi-ecosystem-group: dependencies
+    patterns: ["*"]
+    cooldown: { default-days: 7 }
+  - package-ecosystem: github-actions
+    directory: "/"
+    multi-ecosystem-group: dependencies
+    patterns: ["*"]
+    cooldown: { default-days: 7 }
+  # The base images of every Dockerfile: the release image, the quickstart and the bench rig. Also
+  # the tool images CI and the release run, which are pinned in .github/tools/Dockerfile.
+  - package-ecosystem: docker
+    directories: ["/", "/quickstart", "/bench/SubactId.Bench", "/bench/keycloak", "/.github/tools"]
+    multi-ecosystem-group: dependencies
+    patterns: ["*"]
+    cooldown: { default-days: 7 }
+  # The images the compose files run directly, such as Postgres and Keycloak.
+  - package-ecosystem: docker-compose
+    directories: ["/quickstart", "/bench"]
+    multi-ecosystem-group: dependencies
+    patterns: ["*"]
+    cooldown: { default-days: 7 }
+    ignore:
+      # Built on the machine from the Dockerfiles above, so there is no registry to look them up in.
+      - dependency-name: "subactid-quickstart/*"
+      - dependency-name: "subactid-bench/*"
+  # The Keycloak provider for the realm-as-code module.
+  - package-ecosystem: terraform
+    directory: "/deploy/keycloak/terraform"
+    multi-ecosystem-group: dependencies
+    patterns: ["*"]
+    cooldown: { default-days: 7 }

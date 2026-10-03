@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Pure domain. No package or project references, ever. See the architecture rules in CONTRIBUTING.md. -->
+
+</Project>

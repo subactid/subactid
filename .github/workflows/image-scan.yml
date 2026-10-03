@@ -1,0 +1,55 @@
+name: image-scan
+on:
+  # Weekly, because new vulnerabilities are published against images that have not changed.
+  schedule:
+    - cron: '17 5 * * 2'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  latest:
+    # Forks have no published image.
+    if: github.repository == 'subactid/subactid'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      security-events: write # the vulnerability report
+    env:
+      IMAGE: ghcr.io/subactid/subactid:latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Look for a published image
+        id: published
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Until the first release there is nothing to scan, and that is not a failure.
+          if docker buildx imagetools inspect "$IMAGE" > /dev/null 2>&1; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice title=Nothing to scan::$IMAGE is not published yet."
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Report its known vulnerabilities
+        if: steps.published.outputs.found == 'true'
+        run: .github/scripts/scan-image.sh report "$IMAGE" trivy.sarif
+
+      - name: Publish the report to code scanning
+        if: steps.published.outputs.found == 'true' && !github.event.repository.private
+        uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
+        with:
+          sarif_file: trivy.sarif
+          category: published-image
+
+      # A failure here means the latest release ships a fixable high or critical vulnerability:
+      # rebuild on the patched base image and cut a patch release.
+      - name: Fail on a high or critical vulnerability that has a fix
+        if: steps.published.outputs.found == 'true'
+        run: .github/scripts/scan-image.sh gate "$IMAGE"

@@ -1,0 +1,38 @@
+{{ .Chart.Name }} {{ .Chart.AppVersion }} is installed as {{ .Release.Name }}.
+
+The control plane issues tokens as:
+
+    {{ .Values.issuer }}
+
+It reads its keys and its database from Secrets you created, and the chart rendered none of
+them: {{ .Values.signing.existingSecret }} (signing), {{ .Values.database.existingSecret }} (database){{ if .Values.admin.existingSecret }}, {{ .Values.admin.existingSecret }} (admin API key){{ end }}.
+
+Check the install:
+
+    kubectl rollout status deployment/{{ include "subactid.fullname" . }} -n {{ .Release.Namespace }}
+    helm test {{ .Release.Name }} -n {{ .Release.Namespace }}
+
+{{- if not .Values.ingress.enabled }}
+
+No ingress was created, so nothing outside the cluster reaches this yet. Reach it from inside:
+
+    kubectl port-forward svc/{{ include "subactid.fullname" . }} 5100:{{ .Values.service.port }} -n {{ .Release.Namespace }}
+    curl -s http://127.0.0.1:5100/.well-known/openid-configuration
+{{- else }}
+
+The ingress publishes {{ join ", " .Values.ingress.paths }} on {{ .Values.ingress.host }}. The admin API and the
+audit query are not routed there{{ if .Values.ingress.admin.enabled }}; they are on {{ .Values.ingress.admin.host }}, which must be reachable
+only from inside your network{{ end }}.
+{{- end }}
+
+{{- if not .Values.admin.existingSecret }}
+
+No admin API key is configured, so /admin and /audit answer 503. Set admin.existingSecret when
+you want to register agents or read the ledger over HTTP.
+{{- end }}
+
+{{- if gt (len .Values.signing.keys) 1 }}
+
+{{ len .Values.signing.keys }} signing keys are published; {{ .Values.signing.activeKid }} is signing. Once every token signed by the
+key being retired has expired, drop it from signing.keys and upgrade again.
+{{- end }}

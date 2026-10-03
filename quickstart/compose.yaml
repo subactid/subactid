@@ -1,0 +1,171 @@
+# The Subact ID quickstart: identity provider, database, control plane, tool server, and a demo agent
+# that runs through the story. Run it with `docker compose up`.
+#
+# All values here are for a local demo. Published ports bind to 127.0.0.1. The signing key, admin
+# API key and agent keys are generated at build time and are not in the repository.
+
+name: subactid-quickstart
+
+x-subactid-environment: &subactid-environment
+  SubactId__Issuer: http://subactid:5100
+  # The demo runs over plain http between containers on one machine. Never set this in production.
+  SubactId__AllowInsecureHttp: "true"
+  SubactId__UpstreamIdp__MetadataUrl: http://keycloak:8080/realms/subactid-demo/.well-known/openid-configuration
+  SubactId__UpstreamIdp__Audience: subactid
+  SubactId__UpstreamIdp__SponsorCheck__UsersUrl: http://keycloak:8080/admin/realms/subactid-demo/users
+  SubactId__UpstreamIdp__SponsorCheck__TokenUrl: http://keycloak:8080/realms/subactid-demo/protocol/openid-connect/token
+  SubactId__UpstreamIdp__SponsorCheck__ClientId: subactid
+  SubactId__Database__ConnectionString: Host=postgres;Port=5432;Database=subactid;Username=subactid;Password=quickstart-only
+  ASPNETCORE_ENVIRONMENT: Production
+  # Quiet framework logging so the demo output is readable.
+  Serilog__MinimumLevel__Override__Microsoft: Warning
+  Serilog__MinimumLevel__Override__System: Warning
+
+services:
+  postgres:
+    image: postgres:18-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
+    environment:
+      POSTGRES_DB: subactid
+      POSTGRES_USER: subactid
+      POSTGRES_PASSWORD: quickstart-only
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U subactid -d subactid"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    volumes:
+      # From 18 the image keeps its data in a versioned directory under this one.
+      - postgres:/var/lib/postgresql
+
+  # The identity provider, with the demo realm imported at startup: one human, the sign-in
+  # clients, and the control plane's client, which authenticates with a signed assertion.
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.7.4@sha256:82a77884f3af238beab1e7afd63b5f530e1b5c0590bd7aa60b40a40463e29b2c
+    command: ["start-dev", "--import-realm"]
+    environment:
+      # The demo's Keycloak admin login, reachable from this machine only (the port binds to
+      # 127.0.0.1 below). It is a placeholder for a local demo, not a credential to reuse.
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+      KC_HEALTH_ENABLED: "true"
+    volumes:
+      - ./keycloak/subactid-demo-realm.json:/opt/keycloak/data/import/subactid-demo-realm.json:ro
+    ports:
+      - "127.0.0.1:8080:8080"
+
+  # Runs migrations, which the server never does at startup. Builds the image `subactid` also uses.
+  # Only one service declares the build, so two builds do not race for the same tag.
+  subactid-migrate:
+    image: subactid-quickstart/control-plane
+    build:
+      context: ..
+      dockerfile: quickstart/Dockerfile
+      target: quickstart-server
+    command: ["migrate"]
+    environment: *subactid-environment
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # Image built by subactid-migrate above.
+  subactid:
+    image: subactid-quickstart/control-plane
+    environment: *subactid-environment
+    depends_on:
+      subactid-migrate:
+        condition: service_completed_successfully
+    ports:
+      - "127.0.0.1:5100:5100"
+
+  # A fake Jira. Every call needs a task token for this audience with the tool's scope.
+  # `comment` is introspected with the control plane on every call.
+  tool-server:
+    image: subactid-quickstart/tool-server
+    build:
+      context: ..
+      dockerfile: quickstart/Dockerfile
+      target: tool-server
+    environment:
+      SUBACTID_ISSUER: http://subactid:5100
+      TOOL_AUDIENCE: https://jira.internal
+    depends_on:
+      - subactid
+    ports:
+      - "127.0.0.1:8082:8080"
+
+  # The demo agent. It publishes its keys, registers itself and runs the story, then keeps
+  # running so its keys stay reachable.
+  demo-agent:
+    image: subactid-quickstart/demo-agent
+    build:
+      context: ..
+      dockerfile: quickstart/Dockerfile
+      target: demo-agent
+    environment:
+      SUBACTID_ISSUER: http://subactid:5100
+      SUBACTID_ADMIN_KEY_FILE: /etc/subactid-quickstart/admin-key
+      SUBACTID_AGENT_ID: demo-agent
+      SUBACTID_AGENT_JWKS_URI: https://demo-agent:8443/jwks.json
+      SUBACTID_AGENT_KEY_FILE: /var/lib/demo-agent/agent-key.pem
+      KEYCLOAK_URL: http://keycloak:8080
+      KEYCLOAK_REALM: subactid-demo
+      KEYCLOAK_CLIENT_ID: demo-cli
+      DEMO_USERNAME: demo
+      DEMO_PASSWORD: demo
+      TOOL_SERVER_URL: http://tool-server:8080
+      TOOL_AUDIENCE: https://jira.internal
+    depends_on:
+      - subactid
+      - tool-server
+      - keycloak
+    volumes:
+      - demo-agent-key:/var/lib/demo-agent
+
+  # The agent the portal drives. Same code as demo-agent, run as a service so a person decides
+  # when it acts.
+  portal-agent:
+    image: subactid-quickstart/portal-agent
+    build:
+      context: ..
+      dockerfile: quickstart/Dockerfile
+      target: portal-agent
+    environment:
+      SUBACTID_ISSUER: http://subactid:5100
+      SUBACTID_ADMIN_KEY_FILE: /etc/subactid-quickstart/admin-key
+      SUBACTID_AGENT_KEY_FILE: /var/lib/portal-agent/agent-key.pem
+      SUBACTID_AGENT_JWKS_URI: https://portal-agent:8443/jwks.json
+      TOOL_SERVER_URL: http://tool-server:8080
+      TOOL_AUDIENCE: https://jira.internal
+    depends_on:
+      - subactid
+      - tool-server
+    volumes:
+      - portal-agent-key:/var/lib/portal-agent
+
+  # The portal at http://localhost:8090. Keycloak has two URLs: the browser uses localhost and
+  # the server uses the container name.
+  portal:
+    image: subactid-quickstart/portal
+    build:
+      context: ..
+      dockerfile: quickstart/Dockerfile
+      target: portal
+    environment:
+      PORTAL_BASE_URL: http://localhost:8090
+      KEYCLOAK_PUBLIC_URL: http://localhost:8080
+      KEYCLOAK_URL: http://keycloak:8080
+      KEYCLOAK_REALM: subactid-demo
+      PORTAL_CLIENT_ID: demo-portal
+      AGENT_URL: http://portal-agent:8100
+      SUBACTID_ISSUER: http://subactid:5100
+      SUBACTID_ADMIN_KEY_FILE: /etc/subactid-quickstart/admin-key
+    depends_on:
+      - portal-agent
+      - keycloak
+    ports:
+      - "127.0.0.1:8090:8090"
+
+volumes:
+  postgres:
+  demo-agent-key:
+  portal-agent-key:

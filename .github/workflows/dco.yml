@@ -1,0 +1,66 @@
+name: dco
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  sign-off:
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check every commit in the PR is signed off by its author
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          EXPECTED: ${{ github.event.pull_request.commits }}
+        run: |
+          set -euo pipefail
+          # The commits come from the API, not from git, so a bot is recognised by the GitHub account
+          # the commit is attributed to. A commit's author name is set by whoever made it, so it
+          # proves nothing.
+          commits="$RUNNER_TEMP/commits.json"
+          gh api "repos/$REPO/pulls/$PR/commits?per_page=100" --paginate | jq -s 'add // []' > "$commits"
+
+          # The API lists at most 250 commits. Refuse rather than check only some of them.
+          count=$(jq 'length' "$commits")
+          if [ "$count" != "$EXPECTED" ]; then
+            echo "::error title=Commits not all checked::the API returned $count of the $EXPECTED commits in this pull request. Squash some of its commits."
+            exit 1
+          fi
+
+          missing=0
+          while IFS= read -r commit; do
+            sha=$(jq -r '.sha' <<<"$commit")
+            login=$(jq -r '.author.login // ""' <<<"$commit")
+            type=$(jq -r '.author.type // ""' <<<"$commit")
+            verified=$(jq -r '.commit.verification.verified // false' <<<"$commit")
+            email=$(jq -r '.commit.author.email // ""' <<<"$commit")
+            message=$(jq -r '.commit.message // ""' <<<"$commit")
+
+            # Bot accounts cannot sign off. Skip only these two, only when GitHub attributes the
+            # commit to the bot account itself, and only when GitHub verified its signature.
+            if [ "$type" = "Bot" ] && [ "$verified" = "true" ] \
+               && { [ "$login" = "dependabot[bot]" ] || [ "$login" = "github-actions[bot]" ]; }; then
+              echo "skipping commit $sha by $login"
+              continue
+            fi
+
+            signoffs=$(grep -E '^Signed-off-by: .+ <[^<> ]+@[^<> ]+>$' <<<"$message" || true)
+            if [ -z "$signoffs" ]; then
+              echo "::error title=Missing sign-off::commit $sha has no Signed-off-by line. Use git commit -s."
+              missing=1
+              continue
+            fi
+            if [ -z "$email" ] || ! grep -qiF "<$email>" <<<"$signoffs"; then
+              echo "::error title=Sign-off does not match the author::commit $sha is not signed off by its author. Add a Signed-off-by line with the author's email, <$email>, with git commit -s."
+              missing=1
+            fi
+          done < <(jq -c '.[]' "$commits")
+          exit "$missing"

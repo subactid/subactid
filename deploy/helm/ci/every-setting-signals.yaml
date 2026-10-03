@@ -1,0 +1,24 @@
+# Signals mode with both receivers, against an identity provider that is not shaped like
+# Keycloak, reached by its full discovery URL. The chart must set none of the poll mode settings,
+# which the server refuses in this mode. CI loads what each container gets with the server.
+issuer: https://subactid.example.com
+
+upstream:
+  metadataUrl: https://idp.example.com/oauth2/default/.well-known/openid-configuration
+  audience: api://subactid
+  sponsorCheck:
+    mode: signals
+
+database:
+  existingSecret: subactid-db
+
+signing:
+  existingSecret: subactid-signing
+
+scim:
+  existingSecret: subactid-scim
+
+ssf:
+  issuer: https://idp.example.com
+  audience: https://subactid.example.com/events
+  existingSecret: subactid-ssf

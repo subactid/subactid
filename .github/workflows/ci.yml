@@ -1,0 +1,757 @@
+name: ci
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  push:
+    branches: [main]
+  # The release runs this whole workflow on the tagged commit and publishes only if it passes.
+  workflow_call:
+
+permissions:
+  contents: read
+
+# A newer push to a pull request supersedes the run before it. Runs on main are never cancelled,
+# so every merged commit gets a status of its own.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build:
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # The project was renamed to Subact ID. The pattern is written so this line does not match itself.
+      - name: Check the previous name has not come back
+        run: |
+          if git grep -nIiE 'o[n]be'; then
+            echo "::error::The previous project name is back in the files above. Use Subact ID, SubactId or subactid."
+            exit 1
+          fi
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: '10.0.x'
+      - run: dotnet restore
+      - run: dotnet build --no-restore -c Release
+      - run: dotnet format --no-restore --verify-no-changes
+      - run: dotnet test tests/SubactId.UnitTests --no-build -c Release
+      - run: dotnet test tests/SubactId.IntegrationTests --no-build -c Release
+
+  # The integration tests again, on the oldest Postgres the server supports (docs/storage.md).
+  # Every other job runs the current one. Drop this when the floor moves.
+  postgres-16:
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      SUBACTID_TEST_POSTGRES_IMAGE: postgres:16-alpine
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: '10.0.x'
+      - run: dotnet test tests/SubactId.IntegrationTests -c Release
+
+  conformance:
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:18@sha256:5a5a84b19854a9ffaa54082c166ff4ec27473a361e496e5ea167f298f2da9722
+        env:
+          POSTGRES_USER: subactid
+          POSTGRES_PASSWORD: subactid-ci-only
+          POSTGRES_DB: subactid
+        ports:
+          - 5432:5432
+        options: --health-cmd "pg_isready -U subactid" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      # The instance under test. All values are throwaway and used only by this job.
+      SubactId__Issuer: http://127.0.0.1:5100
+      SubactId__UpstreamIdp__MetadataUrl: https://localhost:5199/.well-known/openid-configuration
+      SubactId__UpstreamIdp__Audience: subactid
+      SubactId__UpstreamIdp__SponsorCheck__UsersUrl: https://localhost:5199/admin/realms/main/users
+      SubactId__UpstreamIdp__SponsorCheck__TokenUrl: https://localhost:5199/realms/main/protocol/openid-connect/token
+      SubactId__UpstreamIdp__SponsorCheck__ClientId: subactid
+      SubactId__Database__ConnectionString: Host=127.0.0.1;Username=subactid;Password=subactid-ci-only;Database=subactid
+      # Settings the suite relies on, set explicitly. The suite looks one minute back for
+      # aggregated denials and its shortest task is a minute. It waits out a 429, so the rate
+      # limits below are the defaults, set explicitly.
+      SubactId__Audit__Aggregation__Window: PT1M
+      # Shorter than the default minute, because case 10 waits for a signed checkpoint.
+      SubactId__Audit__Checkpoint__Interval: PT5S
+      SubactId__Agents__MinTaskTtl: PT1M
+      # The defaults, set explicitly too: case 5 refreshes 20 seconds into a task, and cases 13,
+      # 19 and 20 name a person by the subject in their token and by externalId.
+      SubactId__Tokens__DefaultTaskTtl: PT30M
+      SubactId__UpstreamIdp__SponsorKeyClaim: sub
+      SubactId__Scim__SponsorKeyAttribute: externalId
+      # The three receivers, for cases 18 to 20. Their credentials are made per run below.
+      SubactId__UpstreamIdp__BackchannelLogout__Audience: conformance-portal
+      SubactId__Ssf__Issuer: https://localhost:5199/transmitter
+      SubactId__Ssf__Audience: http://127.0.0.1:5100/events
+      SubactId__RateLimit__PermitsPerMinute: "600"
+      SubactId__RateLimit__Burst: "120"
+      SubactId__Signing__Keys__0__Kid: ci
+      SubactId__Signing__Keys__0__Path: ${{ github.workspace }}/conformance/signing.pem
+      ASPNETCORE_URLS: http://127.0.0.1:5100
+      ASPNETCORE_ENVIRONMENT: Production
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: '10.0.x'
+      - name: Make the keys and the certificate the run needs
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p conformance && cd conformance
+          # Fresh signing key and admin key for this run.
+          openssl ecparam -name prime256v1 -genkey -noout | openssl pkcs8 -topk8 -nocrypt -out signing.pem
+          # Masked before export, since the job environment is echoed into the log.
+          admin_key=$(openssl rand -hex 32)
+          echo "::add-mask::$admin_key"
+          echo "SubactId__Admin__ApiKey=$admin_key" >> "$GITHUB_ENV"
+          scim_token=$(openssl rand -hex 24)
+          echo "::add-mask::$scim_token"
+          echo "SubactId__Scim__BearerToken=$scim_token" >> "$GITHUB_ENV"
+          ssf_token=$(openssl rand -hex 24)
+          echo "::add-mask::$ssf_token"
+          echo "SubactId__Ssf__BearerToken=$ssf_token" >> "$GITHUB_ENV"
+          # The stub identity provider serves agent JWKS over https, so make a CA and a localhost certificate.
+          openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -keyout ca.key -out ca.crt -days 2 -subj "/CN=subactid-conformance-ca"
+          openssl req -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -keyout stub.key -out stub.csr -subj "/CN=localhost"
+          printf "subjectAltName=DNS:localhost,IP:127.0.0.1\nextendedKeyUsage=serverAuth\n" > stub.ext
+          openssl x509 -req -in stub.csr -CA ca.crt -CAkey ca.key -CAcreateserial -out stub.crt -days 2 -extfile stub.ext
+          openssl pkcs12 -export -out stub.pfx -inkey stub.key -in stub.crt -passout pass:
+          sudo cp ca.crt /usr/local/share/ca-certificates/subactid-conformance-ca.crt
+          sudo update-ca-certificates
+      - run: dotnet restore
+      - run: dotnet build --no-restore -c Release
+      - name: Migrate and start the instance
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet src/SubactId.Server/bin/Release/net10.0/SubactId.Server.dll migrate
+          nohup dotnet src/SubactId.Server/bin/Release/net10.0/SubactId.Server.dll > conformance/server.log 2>&1 &
+          for i in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:5100/healthz > /dev/null; then echo "instance is up"; exit 0; fi
+            sleep 1
+          done
+          echo "::error::the instance did not come up"; cat conformance/server.log; exit 1
+      - name: Run the conformance suite against the instance
+        shell: bash
+        env:
+          SUBACTID_CONFORMANCE_URL: http://127.0.0.1:5100
+          SUBACTID_CONFORMANCE_ADMIN_KEY: ${{ env.SubactId__Admin__ApiKey }}
+          SUBACTID_CONFORMANCE_STUB_URL: https://localhost:5199
+          SUBACTID_CONFORMANCE_STUB_PFX: ${{ github.workspace }}/conformance/stub.pfx
+          SUBACTID_CONFORMANCE_LOGOUT_AUDIENCE: ${{ env.SubactId__UpstreamIdp__BackchannelLogout__Audience }}
+          SUBACTID_CONFORMANCE_SCIM_TOKEN: ${{ env.SubactId__Scim__BearerToken }}
+          SUBACTID_CONFORMANCE_SSF_AUDIENCE: ${{ env.SubactId__Ssf__Audience }}
+          SUBACTID_CONFORMANCE_SSF_TOKEN: ${{ env.SubactId__Ssf__BearerToken }}
+        run: |
+          set -euo pipefail
+          dotnet test tests/SubactId.Conformance --no-build -c Release 2>&1 | tee conformance/suite.log
+          if grep -q 'No test is available' conformance/suite.log; then
+            echo "::error title=Conformance suite is empty::The conformance suite ran no tests; it must never pass by running nothing."
+            exit 1
+          fi
+      - name: Instance log
+        if: failure()
+        run: cat conformance/server.log
+
+  # The same suite against an instance in signals mode, which no other job runs live.
+  #
+  # Case 9 disables a person at the stub's admin API, which signals mode does not consult, so it
+  # is excluded here. It still runs in the job above. The other nineteen cases must pass, and show
+  # that exchange and refresh work with no sponsor-check URL configured.
+  #
+  # A separate job, not a matrix, so the `conformance` check keeps its name.
+  conformance-signals:
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:18@sha256:5a5a84b19854a9ffaa54082c166ff4ec27473a361e496e5ea167f298f2da9722
+        env:
+          POSTGRES_USER: subactid
+          POSTGRES_PASSWORD: subactid-ci-only
+          POSTGRES_DB: subactid
+        ports:
+          - 5432:5432
+        options: --health-cmd "pg_isready -U subactid" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      # As above, but in signals mode, with no SponsorCheck URLs (that mode refuses them).
+      SubactId__Issuer: http://127.0.0.1:5100
+      SubactId__UpstreamIdp__MetadataUrl: https://localhost:5199/.well-known/openid-configuration
+      SubactId__UpstreamIdp__Audience: subactid
+      SubactId__UpstreamIdp__SponsorCheck__Mode: signals
+      SubactId__Database__ConnectionString: Host=127.0.0.1;Username=subactid;Password=subactid-ci-only;Database=subactid
+      SubactId__Audit__Aggregation__Window: PT1M
+      # Shorter than the default minute, because case 10 waits for a signed checkpoint.
+      SubactId__Audit__Checkpoint__Interval: PT5S
+      SubactId__Agents__MinTaskTtl: PT1M
+      # The defaults, set explicitly too: case 5 refreshes 20 seconds into a task, and cases 13,
+      # 19 and 20 name a person by the subject in their token and by externalId.
+      SubactId__Tokens__DefaultTaskTtl: PT30M
+      SubactId__UpstreamIdp__SponsorKeyClaim: sub
+      SubactId__Scim__SponsorKeyAttribute: externalId
+      # The three receivers, for cases 18 to 20. Their credentials are made per run below.
+      SubactId__UpstreamIdp__BackchannelLogout__Audience: conformance-portal
+      SubactId__Ssf__Issuer: https://localhost:5199/transmitter
+      SubactId__Ssf__Audience: http://127.0.0.1:5100/events
+      SubactId__RateLimit__PermitsPerMinute: "600"
+      SubactId__RateLimit__Burst: "120"
+      SubactId__Signing__Keys__0__Kid: ci
+      SubactId__Signing__Keys__0__Path: ${{ github.workspace }}/conformance/signing.pem
+      ASPNETCORE_URLS: http://127.0.0.1:5100
+      ASPNETCORE_ENVIRONMENT: Production
+      # Case 9, which needs the identity provider's admin API.
+      SUITE_FILTER: FullyQualifiedName!~A_task_dies_with_the_human_it_acts_for
+      # The number of remaining cases. Raise it when the suite grows.
+      SUITE_MIN_CASES: "19"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: '10.0.x'
+      - name: Make the keys and the certificate the run needs
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p conformance && cd conformance
+          openssl ecparam -name prime256v1 -genkey -noout | openssl pkcs8 -topk8 -nocrypt -out signing.pem
+          # Masked before export, since the job environment is echoed into the log.
+          admin_key=$(openssl rand -hex 32)
+          echo "::add-mask::$admin_key"
+          echo "SubactId__Admin__ApiKey=$admin_key" >> "$GITHUB_ENV"
+          scim_token=$(openssl rand -hex 24)
+          echo "::add-mask::$scim_token"
+          echo "SubactId__Scim__BearerToken=$scim_token" >> "$GITHUB_ENV"
+          ssf_token=$(openssl rand -hex 24)
+          echo "::add-mask::$ssf_token"
+          echo "SubactId__Ssf__BearerToken=$ssf_token" >> "$GITHUB_ENV"
+          openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -keyout ca.key -out ca.crt -days 2 -subj "/CN=subactid-conformance-ca"
+          openssl req -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -keyout stub.key -out stub.csr -subj "/CN=localhost"
+          printf "subjectAltName=DNS:localhost,IP:127.0.0.1\nextendedKeyUsage=serverAuth\n" > stub.ext
+          openssl x509 -req -in stub.csr -CA ca.crt -CAkey ca.key -CAcreateserial -out stub.crt -days 2 -extfile stub.ext
+          openssl pkcs12 -export -out stub.pfx -inkey stub.key -in stub.crt -passout pass:
+          sudo cp ca.crt /usr/local/share/ca-certificates/subactid-conformance-ca.crt
+          sudo update-ca-certificates
+      - run: dotnet restore
+      - run: dotnet build --no-restore -c Release
+      - name: Migrate and start the instance in signals mode
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet src/SubactId.Server/bin/Release/net10.0/SubactId.Server.dll migrate
+          nohup dotnet src/SubactId.Server/bin/Release/net10.0/SubactId.Server.dll > conformance/server.log 2>&1 &
+          for i in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:5100/healthz > /dev/null; then echo "instance is up"; exit 0; fi
+            sleep 1
+          done
+          echo "::error::the instance did not come up"; cat conformance/server.log; exit 1
+      - name: The instance reports the mode it is actually in
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Fail if the instance is not in signals mode, or this job duplicates the one above.
+          dotnet src/SubactId.Server/bin/Release/net10.0/SubactId.Server.dll doctor | tee conformance/doctor.log || true
+          grep -q "Mode 'signals'" conformance/doctor.log || {
+            echo "::error title=Not in signals mode::The instance under test is not in signals mode, so this job is a duplicate of the conformance job."
+            exit 1
+          }
+      - name: Run the mode-independent cases against the instance
+        shell: bash
+        env:
+          SUBACTID_CONFORMANCE_URL: http://127.0.0.1:5100
+          SUBACTID_CONFORMANCE_ADMIN_KEY: ${{ env.SubactId__Admin__ApiKey }}
+          SUBACTID_CONFORMANCE_STUB_URL: https://localhost:5199
+          SUBACTID_CONFORMANCE_STUB_PFX: ${{ github.workspace }}/conformance/stub.pfx
+          SUBACTID_CONFORMANCE_LOGOUT_AUDIENCE: ${{ env.SubactId__UpstreamIdp__BackchannelLogout__Audience }}
+          SUBACTID_CONFORMANCE_SCIM_TOKEN: ${{ env.SubactId__Scim__BearerToken }}
+          SUBACTID_CONFORMANCE_SSF_AUDIENCE: ${{ env.SubactId__Ssf__Audience }}
+          SUBACTID_CONFORMANCE_SSF_TOKEN: ${{ env.SubactId__Ssf__BearerToken }}
+        run: |
+          set -euo pipefail
+          dotnet test tests/SubactId.Conformance --no-build -c Release --filter "$SUITE_FILTER" 2>&1 | tee conformance/suite.log
+          if grep -q 'No test is available' conformance/suite.log; then
+            echo "::error title=Conformance suite is empty::The conformance suite ran no tests; it must never pass by running nothing."
+            exit 1
+          fi
+          # Fail if the filter excluded more than the one case.
+          ran=$(grep -oE 'Total:[[:space:]]+[0-9]+' conformance/suite.log | tail -1 | grep -oE '[0-9]+' || echo 0)
+          if [ "${ran:-0}" -lt "$SUITE_MIN_CASES" ]; then
+            echo "::error title=Too few cases ran::$ran case(s) ran against the signals-mode instance; at least $SUITE_MIN_CASES are mode-independent. The filter is excluding more than the one case it names."
+            exit 1
+          fi
+      - name: Instance log
+        if: failure()
+        run: cat conformance/server.log
+
+  # Builds the image a release publishes. No other job builds it.
+  image:
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      security-events: write # the vulnerability report
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build it the way a release does
+        run: docker build -t subactid:ci --build-arg VERSION=0.0.0-ci --build-arg REVISION="$GITHUB_SHA" .
+      - name: A plain build must produce the control plane
+        shell: bash
+        run: |
+          set -euo pipefail
+          entrypoint=$(docker image inspect subactid:ci --format '{{json .Config.Entrypoint}}')
+          echo "entrypoint: $entrypoint"
+          case "$entrypoint" in
+            *SubactId.Server.dll*) ;;
+            *)
+              echo "::error title=Wrong default target::docker build with no --target produced $entrypoint, which is not the control plane."
+              exit 1 ;;
+          esac
+          revision=$(docker image inspect subactid:ci --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')
+          if [ "$revision" != "$GITHUB_SHA" ]; then
+            echo "::error title=Image does not say where it came from::the revision label is '$revision'."
+            exit 1
+          fi
+          version=$(docker image inspect subactid:ci --format '{{index .Config.Labels "org.opencontainers.image.version"}}')
+          if [ "$version" != "0.0.0-ci" ]; then
+            echo "::error title=Image does not say which version it is::the version label is '$version'."
+            exit 1
+          fi
+          # The version build argument must also reach the assemblies, not just the labels.
+          if ! docker run --rm --entrypoint sh subactid:ci -c 'grep -aq "0\.0\.0-ci" /app/SubactId.*.dll'; then
+            echo "::error title=Version not stamped::the build argument reached the labels but not the assembly."
+            exit 1
+          fi
+      - name: It must carry nothing that was made while it was built
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm --entrypoint sh subactid:ci -c '
+            set -eu
+            # Paths where the quickstart bakes its throwaway keys and configuration.
+            # None may appear in the published image.
+            for path in /etc/subactid /etc/subactid-quickstart /app/appsettings.json; do
+              if [ -e "$path" ]; then
+                echo "::error title=Quickstart material in the published image::$path is in the image."
+                exit 1
+              fi
+            done
+            found=$(find /app -type f \( -name "*.pem" -o -name "*.key" -o -name "*.crt" -o -name "*.pfx" \) || true)
+            if [ -n "$found" ]; then
+              echo "::error title=Key material in the published image::$found"
+              exit 1
+            fi
+          '
+      - name: It must carry its licences and the third-party notices
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm --entrypoint sh subactid:ci -c '
+            set -eu
+            for file in /licenses/LICENSE /licenses/NOTICE /licenses/THIRD-PARTY-NOTICES.md; do
+              if [ ! -s "$file" ]; then
+                echo "::error title=Licence file missing from the image::$file is missing or empty."
+                exit 1
+              fi
+            done
+            # The packages the server depends on directly must be listed, each with a licence the
+            # dependency-review policy allows.
+            for id in Microsoft.EntityFrameworkCore Npgsql Serilog.AspNetCore YamlDotNet; do
+              if ! grep -qE "^\| $id \| [^|]+ \| (MIT|Apache-2\.0|PostgreSQL) \|$" /licenses/THIRD-PARTY-NOTICES.md; then
+                echo "::error title=Third-party notices incomplete::$id is not listed with its licence in /licenses/THIRD-PARTY-NOTICES.md."
+                exit 1
+              fi
+            done
+            cat /licenses/THIRD-PARTY-NOTICES.md
+          '
+      - name: Its commands must run, because the chart runs this image with "migrate"
+        shell: bash
+        run: |
+          set -euo pipefail
+          # "agent init" needs no configuration, database or identity provider.
+          docker run --rm subactid:ci agent init ci-smoke --out /tmp
+      - name: Report its known vulnerabilities
+        run: .github/scripts/scan-image.sh report subactid:ci trivy.sarif
+      - name: Publish the report to code scanning
+        # Code scanning needs GitHub Advanced Security on a private repository, and a pull
+        # request from a fork cannot write to it.
+        if: >-
+          !github.event.repository.private
+          && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
+        with:
+          sarif_file: trivy.sarif
+          category: image
+      # Warns rather than fails: a fixable finding is almost always in the base image, which no
+      # pull request can change. The release refuses to publish such an image, and the weekly
+      # scan fails on a published one.
+      - name: Warn of a high or critical vulnerability that has a fix
+        run: .github/scripts/scan-image.sh warn subactid:ci
+
+  quickstart:
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Bring the quickstart up and wait for the story to finish
+        working-directory: quickstart
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker compose up -d --build
+          for i in $(seq 1 150); do
+            if docker compose logs demo-agent | grep -q "The stack stays up"; then
+              docker compose logs demo-agent
+              echo "the quickstart told its story"
+              exit 0
+            fi
+            if [ -n "$(docker compose ps --status exited --quiet demo-agent)" ]; then break; fi
+            sleep 2
+          done
+          echo "::error title=Quickstart did not finish::The demo agent never reached the end of the story."
+          docker compose logs
+          exit 1
+      - name: Stop it
+        if: always()
+        working-directory: quickstart
+        run: docker compose down -v
+
+  chart:
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: v3.16.3
+      - name: Lint the chart, and check it refuses what it should
+        shell: bash
+        run: |
+          set -euo pipefail
+          values=(--set issuer=https://subactid.example.com
+                  --set upstream.issuer=https://kc.example.com/realms/corp
+                  --set database.existingSecret=subactid-db
+                  --set signing.existingSecret=subactid-signing)
+          helm lint deploy/helm/subactid "${values[@]}"
+          helm template subactid deploy/helm/subactid "${values[@]}" > /tmp/rendered.yaml
+          # The chart references secrets by name and must never render a secret value.
+          if grep -nE '(BEGIN [A-Z ]*PRIVATE KEY|Password=|api-key: )' /tmp/rendered.yaml; then
+            echo "::error title=Secret in rendered output::The chart rendered something that looks like a secret value."
+            exit 1
+          fi
+          # The chart must refuse an ingress that routes /admin.
+          if helm template subactid deploy/helm/subactid "${values[@]}" \
+               --set ingress.enabled=true --set ingress.host=subactid.example.com \
+               --set rateLimit.trustedProxies=10.244.0.0/16 \
+               --set 'ingress.paths={/oauth2,/admin}' > /dev/null 2>&1; then
+            echo "::error title=Admin API publishable::The chart rendered an ingress that routes /admin."
+            exit 1
+          fi
+          # The chart must refuse an ingress without trusted proxies, and accept one with them.
+          if helm template subactid deploy/helm/subactid "${values[@]}" \
+               --set ingress.enabled=true --set ingress.host=subactid.example.com > /dev/null 2>&1; then
+            echo "::error title=Ingress without trusted proxies::The chart rendered an ingress with rateLimit.trustedProxies unset."
+            exit 1
+          fi
+          helm template subactid deploy/helm/subactid "${values[@]}" \
+            --set ingress.enabled=true --set ingress.host=subactid.example.com \
+            --set rateLimit.trustedProxies=10.244.0.0/16 > /dev/null
+          # A separate migration role goes to the hook Job only, never to the server.
+          migration=(--set database.migration.existingSecret=subactid-db-migrate)
+          if ! helm template subactid deploy/helm/subactid "${values[@]}" "${migration[@]}" \
+                 --show-only templates/migrate-job.yaml | grep -q MigrationConnectionString; then
+            echo "::error title=Migration job cannot migrate::The hook Job was not given the migration connection string."
+            exit 1
+          fi
+          if helm template subactid deploy/helm/subactid "${values[@]}" "${migration[@]}" \
+               --show-only templates/deployment.yaml | grep -q MigrationConnectionString; then
+            echo "::error title=Server can migrate::The server Deployment was given the migration connection string."
+            exit 1
+          fi
+          # Signals mode sets the mode and none of the poll mode settings, which the server refuses in it.
+          signals=$(helm template subactid deploy/helm/subactid "${values[@]}" --set upstream.sponsorCheck.mode=signals)
+          if ! grep -q 'SubactId__UpstreamIdp__SponsorCheck__Mode' <<<"$signals" \
+               || grep -qE 'SubactId__UpstreamIdp__SponsorCheck__(UsersUrl|TokenUrl|ClientId|CacheTtl)' <<<"$signals"; then
+            echo "::error title=Signals mode renders poll settings::The chart in signals mode rendered a poll mode setting, or no mode."
+            exit 1
+          fi
+          # What the chart must refuse, each for its own reason: a mistyped value, a poll setting in
+          # signals mode, a receiver setting without its credential, and a Subact ID setting in extraEnv.
+          refuse() {
+            local expected=$1
+            shift
+            local output
+            if output=$(helm template subactid deploy/helm/subactid "${values[@]}" "$@" 2>&1 >/dev/null); then
+              echo "::error title=Chart accepted a bad value::helm template accepted $*"
+              exit 1
+            fi
+            if ! grep -qF "$expected" <<<"$output"; then
+              echo "::error title=Chart refused for another reason::helm template $* failed without naming '$expected': $output"
+              exit 1
+            fi
+          }
+          refuse sponsorcheck --set upstream.sponsorcheck.clientId=subactid
+          refuse "upstream.sponsorCheck.mode is signals" --set upstream.sponsorCheck.mode=signals \
+            --set upstream.sponsorCheck.usersUrl=https://kc.example.com/admin/realms/corp/users
+          refuse scim.existingSecret --set scim.maxUsers=100
+          refuse "ssf.audience is required" --set ssf.issuer=https://transmitter.example.com
+          refuse "extraEnv must not set" --set 'extraEnv[0].name=SubactId__Admin__ApiKey' --set 'extraEnv[0].value=x'
+      - name: Check every rendered manifest against the Kubernetes schemas
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Checked against the release's published checksum before anything is unpacked.
+          archive="$RUNNER_TEMP/kubeconform-linux-amd64.tar.gz"
+          curl -fsSL -o "$archive" \
+            https://github.com/yannh/kubeconform/releases/download/v0.7.0/kubeconform-linux-amd64.tar.gz
+          echo "c31518ddd122663b3f3aa874cfe8178cb0988de944f29c74a0b9260920d115d3  $archive" | sha256sum -c -
+          tar -xzf "$archive" -C /usr/local/bin kubeconform
+          helm template subactid deploy/helm/subactid -f deploy/kubernetes/values.yaml --set ingress.admin.enabled=true \
+            | kubeconform -strict -summary -kubernetes-version 1.32.0
+          for values in deploy/helm/ci/every-setting-poll.yaml deploy/helm/ci/every-setting-signals.yaml; do
+            helm template subactid deploy/helm/subactid -f "$values" | kubeconform -strict -summary -kubernetes-version 1.32.0
+          done
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: '10.0.x'
+      - name: Load what each rendered container gets with the server itself
+        shell: bash
+        run: |
+          set -euo pipefail
+          # A setting the server refuses fails here, not in a pod. PyYAML comes from Ubuntu when missing.
+          python3 -c 'import yaml' 2>/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq python3-yaml; }
+          dotnet build src/SubactId.Server -c Release
+          server=src/SubactId.Server/bin/Release/net10.0/SubactId.Server.dll
+          minimal=(--set issuer=https://subactid.example.com
+                   --set upstream.issuer=https://kc.example.com/realms/corp
+                   --set database.existingSecret=subactid-db
+                   --set signing.existingSecret=subactid-signing)
+          echo "minimal values"
+          helm template subactid deploy/helm/subactid "${minimal[@]}" | python3 deploy/helm/ci/load-rendered.py "$server"
+          for values in deploy/kubernetes/values.yaml deploy/kind/values.yaml deploy/helm/ci/every-setting-poll.yaml deploy/helm/ci/every-setting-signals.yaml; do
+            echo "$values"
+            helm template subactid deploy/helm/subactid -f "$values" | python3 deploy/helm/ci/load-rendered.py "$server"
+          done
+
+  keycloak:
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: 1.9.8
+          terraform_wrapper: false
+      - name: Start a Keycloak
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Not a service container, because Keycloak needs the "start-dev" argument.
+          # All credentials here are throwaway.
+          docker run -d --name keycloak-ci --network host \
+            -e KC_BOOTSTRAP_ADMIN_USERNAME=admin \
+            -e KC_BOOTSTRAP_ADMIN_PASSWORD=keycloak-ci-only \
+            quay.io/keycloak/keycloak:26.7.4@sha256:82a77884f3af238beab1e7afd63b5f530e1b5c0590bd7aa60b40a40463e29b2c start-dev
+          for i in $(seq 1 90); do
+            if curl -fsS http://127.0.0.1:8080/realms/master/.well-known/openid-configuration > /dev/null 2>&1; then
+              echo "keycloak is up"; exit 0
+            fi
+            sleep 2
+          done
+          echo "::error title=Keycloak did not start::the realm endpoint never answered"
+          docker logs keycloak-ci 2>&1 | tail -50
+          exit 1
+      - name: Check the module is formatted
+        run: terraform -chdir=deploy/keycloak/terraform fmt -check -recursive
+      - name: Apply the module, then apply it again
+        shell: bash
+        env:
+          KEYCLOAK_URL: http://127.0.0.1:8080
+          TF_VAR_keycloak_url: http://127.0.0.1:8080
+          TF_VAR_realm_id: ci
+          TF_VAR_control_plane_jwks_url: http://subactid.ci.invalid/.well-known/jwks.json
+          TF_VAR_subactid_url: http://subactid.ci.invalid
+        run: |
+          set -euo pipefail
+
+          # Create the realm. The module manages clients only.
+          token=$(curl -fsS -X POST "$KEYCLOAK_URL/realms/master/protocol/openid-connect/token" \
+            -d grant_type=password -d client_id=admin-cli -d username=admin -d password=keycloak-ci-only \
+            | python3 -c 'import sys,json; print(json.load(sys.stdin)["access_token"])')
+          curl -fsS -X POST "$KEYCLOAK_URL/admin/realms" -H "Authorization: Bearer $token" \
+            -H 'Content-Type: application/json' -d '{"realm":"ci","enabled":true}' > /dev/null
+
+          cd deploy/keycloak/terraform
+          cat > ci.auto.tfvars <<'TFVARS'
+          delegable_scopes = [
+            { name = "jira:read", description = "Read Jira issues" },
+            { name = "payroll:read", description = "Read payroll", assignment = "optional" },
+          ]
+          workbench_valid_redirect_uris = ["https://workbench.ci.invalid/*"]
+          TFVARS
+
+          cat > provider_ci.tf <<'PROVIDER'
+          provider "keycloak" {
+            client_id = "admin-cli"
+            username  = "admin"
+            password  = "keycloak-ci-only"
+            url       = "http://127.0.0.1:8080"
+          }
+          PROVIDER
+
+          terraform init -input=false
+          terraform apply -input=false -auto-approve
+
+          # A second apply must change nothing.
+          terraform plan -input=false -detailed-exitcode && code=0 || code=$?
+          if [ "$code" != "0" ]; then
+            echo "::error title=Module is not idempotent::A second plan wanted to change something."
+            terraform plan -input=false -no-color | tail -40
+            exit 1
+          fi
+          terraform apply -input=false -auto-approve
+      - name: Check the realm it built is one Subact ID can use
+        shell: bash
+        env:
+          KEYCLOAK_URL: http://127.0.0.1:8080
+        run: |
+          set -euo pipefail
+          token=$(curl -fsS -X POST "$KEYCLOAK_URL/realms/master/protocol/openid-connect/token" \
+            -d grant_type=password -d client_id=admin-cli -d username=admin -d password=keycloak-ci-only \
+            | python3 -c 'import sys,json; print(json.load(sys.stdin)["access_token"])')
+          client=$(curl -fsS -H "Authorization: Bearer $token" \
+            "$KEYCLOAK_URL/admin/realms/ci/clients?clientId=workbench" \
+            | python3 -c 'import sys,json; print(json.load(sys.stdin)[0]["id"])')
+
+          # Without the audience mapper every exchange fails with an audience mismatch.
+          curl -fsS -H "Authorization: Bearer $token" \
+            "$KEYCLOAK_URL/admin/realms/ci/clients/$client/protocol-mappers/models" | python3 -c '
+          import sys, json
+          mappers = json.load(sys.stdin)
+          audience = [m for m in mappers if m["protocolMapper"] == "oidc-audience-mapper"]
+          if not audience:
+              raise SystemExit("::error title=No audience mapper::the module did not create one")
+          # The literal-value form, as used by the module and setup.sh.
+          if audience[0]["config"].get("included.custom.audience") != "subactid":
+              raise SystemExit("::error title=Wrong audience::the mapper does not emit subactid as a custom audience")
+          print("audience mapper emits subactid")
+          '
+
+          # Back-channel logout ends the tasks a Keycloak session started. The session flag puts a
+          # sid in the token, so a logout ends only that session's tasks.
+          curl -fsS -H "Authorization: Bearer $token" \
+            "$KEYCLOAK_URL/admin/realms/ci/clients/$client" | python3 -c '
+          import sys, json
+          attributes = json.load(sys.stdin).get("attributes", {})
+          url = attributes.get("backchannel.logout.url")
+          if url != "http://subactid.ci.invalid/backchannel-logout":
+              raise SystemExit(f"::error title=No backchannel logout URL::the module set {url!r}")
+          if attributes.get("backchannel.logout.session.required") != "true":
+              raise SystemExit("::error title=Logout without a session::the token would carry no sid")
+          print("backchannel logout points at subactid and carries a session")
+          '
+
+          scopes=$(curl -fsS -H "Authorization: Bearer $token" \
+            "$KEYCLOAK_URL/admin/realms/ci/clients/$client/default-client-scopes" \
+            | python3 -c 'import sys,json; print(" ".join(sorted(s["name"] for s in json.load(sys.stdin))))')
+          echo "default client scopes: $scopes"
+          # "basic" carries the sub claim. A token without sub is refused.
+          for required in basic jira:read; do
+            case " $scopes " in
+              *" $required "*) ;;
+              *) echo "::error title=Missing client scope::'$required' is not a default scope of the workbench client"; exit 1 ;;
+            esac
+          done
+
+          # The control plane authenticates with a signed assertion (client-jwt with a JWKS URL).
+          curl -fsS -H "Authorization: Bearer $token" \
+            "$KEYCLOAK_URL/admin/realms/ci/clients?clientId=subactid" | python3 -c '
+          import sys, json
+          client = json.load(sys.stdin)[0]
+          if client["clientAuthenticatorType"] != "client-jwt":
+              raise SystemExit("::error title=Shared secret::the control plane client does not use client-jwt")
+          if client["attributes"].get("use.jwks.url") != "true" or not client["attributes"].get("jwks.url"):
+              raise SystemExit("::error title=No JWKS url::the control plane client has nowhere to fetch the key")
+          print("control plane client authenticates with a signed assertion")
+          '
+      - name: What Keycloak made of it
+        if: failure()
+        run: docker logs keycloak-ci 2>&1 | tail -60 || true
+      - name: Stop Keycloak
+        if: always()
+        run: docker rm -f keycloak-ci || true
+
+  # Every file in the tree carries licensing information, through REUSE.toml or its own header,
+  # and every licence named has its text in LICENSES/. The tool runs from its own image, pinned
+  # in .github/tools/Dockerfile.
+  reuse:
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check the tree is REUSE compliant
+        run: docker run --rm -v "$PWD:/data:ro" "$(.github/scripts/tool-image.sh reuse)" lint
+
+  # No secret in the tree, and none in the commits a pull request adds. The scanner runs from its
+  # own image, pinned in .github/tools/Dockerfile.
+  gitleaks:
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # Full history, so a pull request's commits can be scanned as well as its tree.
+          fetch-depth: 0
+      - name: Scan the tree, and the commits of a pull request
+        shell: bash
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          # The image marks every directory safe for git, so the checkout's ownership is no obstacle.
+          gitleaks() {
+            docker run --rm -v "$PWD:/repo" -w /repo "$(.github/scripts/tool-image.sh gitleaks)" "$@"
+          }
+          # The tree as it is, under .gitleaks.toml's allowlist. Findings are redacted in the log.
+          gitleaks dir /repo --config /repo/.gitleaks.toml --redact --no-banner
+          # On a pull request, also every commit it adds: a secret committed and removed again is
+          # still in the history.
+          if [ -n "$BASE" ]; then
+            gitleaks git /repo --config /repo/.gitleaks.toml --redact --no-banner --log-opts="$BASE..$HEAD"
+          fi

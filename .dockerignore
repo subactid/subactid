@@ -1,0 +1,18 @@
+**/bin/
+**/obj/
+.git/
+.github/
+docs/
+tests/
+*.md
+# Local keys, certificates, environment files, databases and agent registrations never enter a
+# build context, whichever Dockerfile is built from the repository root.
+**/*.pem
+**/*.key
+**/*.pfx
+**/*.crt
+**/*.env
+.env*
+**/*.db
+bench/.secrets/
+agents/

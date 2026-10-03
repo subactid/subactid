@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <ItemGroup>
+    <ProjectReference Include="../SubactId.Core/SubactId.Core.csproj" />
+    <ProjectReference Include="../SubactId.Tokens/SubactId.Tokens.csproj" />
+    <ProjectReference Include="../SubactId.Storage.Postgres/SubactId.Storage.Postgres.csproj" />
+    <ProjectReference Include="../SubactId.Storage.Sqlite/SubactId.Storage.Sqlite.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Serilog.AspNetCore" Version="10.0.0" />
+    <PackageReference Include="YamlDotNet" Version="18.1.0" />
+  </ItemGroup>
+
+</Project>

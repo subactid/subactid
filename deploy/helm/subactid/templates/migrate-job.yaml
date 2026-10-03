@@ -1,0 +1,70 @@
+{{- if .Values.migrate.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  # Includes the revision, so jobs from different upgrades never share a name.
+  name: {{ include "subactid.fullname" . }}-migrate-{{ .Release.Revision }}
+  labels:
+    {{- include "subactid.labels" . | nindent 4 }}
+    app.kubernetes.io/component: migrate
+  annotations:
+    # The only place the schema changes. Runs before the new version starts.
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "-5"
+    helm.sh/hook-delete-policy: before-hook-creation
+spec:
+  backoffLimit: {{ .Values.migrate.backoffLimit }}
+  activeDeadlineSeconds: {{ .Values.migrate.activeDeadlineSeconds }}
+  template:
+    metadata:
+      labels:
+        {{- include "subactid.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: migrate
+      {{- with .Values.migrate.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      restartPolicy: Never
+      # A pre-install hook runs before the chart's ServiceAccount exists, so this uses the
+      # namespace default. It calls no Kubernetes API, so the token is not mounted.
+      automountServiceAccountToken: false
+      {{- with .Values.image.pullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: migrate
+          image: {{ include "subactid.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["migrate"]
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          env:
+            {{- include "subactid.env.common" . | trim | nindent 12 }}
+            {{- include "subactid.env.database" . | trim | nindent 12 }}
+            {{- if .Values.database.migration.existingSecret }}
+            {{- include "subactid.env.migrationDatabase" . | trim | nindent 12 }}
+            {{- end }}
+            {{- with include "subactid.env.extra" . | trim }}
+            {{- . | nindent 12 }}
+            {{- end }}
+          resources:
+            {{- toYaml .Values.migrate.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

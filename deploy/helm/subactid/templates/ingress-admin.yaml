@@ -1,0 +1,42 @@
+{{- if .Values.ingress.admin.enabled }}
+{{- $fullname := include "subactid.fullname" . }}
+{{- $port := .Values.service.port }}
+{{- $host := required "ingress.admin.host is required when ingress.admin.enabled is true" .Values.ingress.admin.host }}
+{{- if not $.Values.admin.existingSecret }}
+{{- fail "ingress.admin.enabled needs admin.existingSecret: without an API key the admin API answers 503, and routing to it would only publish a closed door." }}
+{{- end }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ $fullname }}-admin
+  labels:
+    {{- include "subactid.labels" . | nindent 4 }}
+    app.kubernetes.io/component: admin
+  {{- with .Values.ingress.admin.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with .Values.ingress.admin.className }}
+  ingressClassName: {{ . | quote }}
+  {{- end }}
+  {{- if .Values.ingress.admin.tls.enabled }}
+  tls:
+    - hosts:
+        - {{ $host | quote }}
+      secretName: {{ required "ingress.admin.tls.secretName is required when ingress.admin.tls.enabled is true" .Values.ingress.admin.tls.secretName | quote }}
+  {{- end }}
+  rules:
+    - host: {{ $host | quote }}
+      http:
+        paths:
+          {{- range .Values.ingress.admin.paths }}
+          - path: {{ . | quote }}
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $fullname }}
+                port:
+                  number: {{ $port }}
+          {{- end }}
+{{- end }}

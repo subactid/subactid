@@ -1,0 +1,44 @@
+{{- if .Values.ingress.enabled }}
+{{- $fullname := include "subactid.fullname" . }}
+{{- $port := .Values.service.port }}
+{{- $host := required "ingress.host is required when ingress.enabled is true" .Values.ingress.host }}
+{{- if and (eq (toString .Values.rateLimit.trustedProxies) "") (ne (toString .Values.rateLimit.enabled) "false") }}
+{{- fail "rateLimit.trustedProxies is required when ingress.enabled is true: behind an ingress every request comes from the ingress, so without it all callers share one rate limit. Set it to the ingress controller's pod network." }}
+{{- end }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ $fullname }}
+  labels:
+    {{- include "subactid.labels" . | nindent 4 }}
+  {{- with .Values.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with .Values.ingress.className }}
+  ingressClassName: {{ . | quote }}
+  {{- end }}
+  {{- if .Values.ingress.tls.enabled }}
+  tls:
+    - hosts:
+        - {{ $host | quote }}
+      secretName: {{ required "ingress.tls.secretName is required when ingress.tls.enabled is true" .Values.ingress.tls.secretName | quote }}
+  {{- end }}
+  rules:
+    - host: {{ $host | quote }}
+      http:
+        paths:
+          {{- range .Values.ingress.paths }}
+          {{- if or (hasPrefix "/admin" .) (hasPrefix "/audit" .) (eq . "/") }}
+          {{- fail "ingress.paths must not publish /admin or /audit, and must not be \"/\", which publishes them: that is the kill switch and everything any agent ever did for anyone. List the paths this ingress should carry, and use ingress.admin for the rest, on a controller only your network can reach." }}
+          {{- end }}
+          - path: {{ . | quote }}
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $fullname }}
+                port:
+                  number: {{ $port }}
+          {{- end }}
+{{- end }}

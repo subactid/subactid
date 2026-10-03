@@ -1,0 +1,18 @@
+# Code-owner review is enforced once the branch rule requires it.
+# The more specific lines below keep these paths with the maintainer even if the default owners
+# change later. In CODEOWNERS the last matching line wins.
+* @NikolaZivkovic41
+
+# The conformance suite is the tripwire for the server, so the server's contributors do not own it.
+/tests/SubactId.Conformance/ @NikolaZivkovic41
+
+# Workflows, Dependabot and these owners.
+/.github/ @NikolaZivkovic41
+
+# The contract.
+/docs/spec/ @NikolaZivkovic41
+
+# Licence and trademark files.
+/LICENSE @NikolaZivkovic41
+/NOTICE @NikolaZivkovic41
+/TRADEMARKS.md @NikolaZivkovic41

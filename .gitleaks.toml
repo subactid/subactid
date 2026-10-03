@@ -1,0 +1,15 @@
+# Secret scanning, run by the gitleaks job in .github/workflows/ci.yml and by the pre-commit hook in
+# .pre-commit-config.yaml. The default rules apply. The allowlist below names the three shapes of
+# text in this tree that look like a key and are not, each as narrowly as a pattern allows. Nothing
+# is allowed by path: a real secret in a test or a document still fails.
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "A pinned release checksum, the example key ids the docs show, and the unit tests' placeholder token"
+regexTarget = "line"
+regexes = [
+  '''KEYCLOAK_SHA256=[0-9a-f]{64}''',
+  '''Key id: [A-Za-z0-9_-]{43} \(RFC 7638 thumbprint\)''',
+  '''"0123456789abcdef0123456789abcdef"''',
+]

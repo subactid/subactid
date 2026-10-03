@@ -1,0 +1,50 @@
+# Chart values for the kind install: the locally built image, the services in
+# dependencies.yaml, and the network policy enabled.
+issuer: http://subactid.subactid.svc.cluster.local
+# The kind cluster serves everything over plain http inside the cluster. Never set this in production.
+allowInsecureHttp: "true"
+
+image:
+  repository: subactid
+  tag: kind
+  # The image is loaded into the node, never pulled.
+  pullPolicy: Never
+
+replicaCount: 2
+
+upstream:
+  # Any realm works. Readiness only fetches its discovery document and keys.
+  issuer: http://keycloak.subactid.svc.cluster.local/realms/master
+
+database:
+  existingSecret: subactid-db
+  migration:
+    existingSecret: subactid-db-migrate
+
+signing:
+  existingSecret: subactid-signing
+  keys:
+    - key: active.pem
+
+admin:
+  existingSecret: subactid-admin
+
+networkPolicy:
+  enabled: true
+  database:
+    podSelector:
+      matchLabels:
+        app.kubernetes.io/name: postgres
+    ports:
+      - 5432
+  upstream:
+    podSelector:
+      matchLabels:
+        app.kubernetes.io/name: keycloak
+    ports:
+      - 8080
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi

@@ -1,0 +1,28 @@
+name: dependency-review
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+
+jobs:
+  review:
+    # Dependency review needs GitHub Advanced Security on a private repository, so skip it there.
+    # Once the repository is public this condition is always true.
+    if: ${{ !github.event.repository.private && !github.event.pull_request.draft }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # Fails the pull request when it adds a dependency with a known vulnerability of any
+      # severity, or under a licence that is not on this list. Every licence listed can be
+      # combined with the AGPL. A dependency under any other licence is a decision for the
+      # maintainer, made by adding it here, not by the pull request that needs it.
+      - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          fail-on-severity: low
+          allow-licenses: >-
+            0BSD, Apache-2.0, BSD-2-Clause, BSD-3-Clause, ISC, MIT, MIT-0, PostgreSQL, Unlicense,
+            Zlib, MPL-2.0, LGPL-2.1-or-later, LGPL-3.0-or-later, GPL-3.0-or-later,
+            AGPL-3.0-only, AGPL-3.0-or-later

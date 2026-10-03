@@ -1,0 +1,24 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+indent_style = space
+trim_trailing_whitespace = true
+
+[*.{cs,csx}]
+indent_size = 4
+dotnet_sort_system_directives_first = true
+csharp_style_namespace_declarations = file_scoped:warning
+
+[*.{json,yml,yaml,md}]
+indent_size = 2
+
+[*.md]
+trim_trailing_whitespace = false
+
+# EF Core migrations are generated, so style rules do not apply.
+[**/Migrations/*.cs]
+generated_code = true
+dotnet_diagnostic.CS1591.severity = none

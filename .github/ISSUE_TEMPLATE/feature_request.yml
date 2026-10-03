@@ -1,0 +1,37 @@
+name: Feature request
+description: Propose a change or a new capability.
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Subact ID is security infrastructure. A proposal that widens a scope, extends a lifetime or skips an
+        audit record will be declined, however convenient it is.
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What you are trying to do, and why Subact ID does not let you do it today.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: The proposal
+      description: What you would change. Name the spec sections it touches, if any.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives
+      description: Other ways you considered, including doing it outside Subact ID.
+    validations:
+      required: false
+  - type: checkboxes
+    id: contribute
+    attributes:
+      label: Contributing
+      options:
+        - label: I would like to open a pull request for this once the design is agreed.
+          required: false

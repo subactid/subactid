@@ -1,0 +1,54 @@
+name: Bug report
+description: Something in Subact ID does not behave as the documentation or the spec says.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not report a security vulnerability here. Use the security policy instead: it is private.
+
+        Never paste a token, key, client secret or connection string, even an expired one.
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The release, image tag or commit you ran.
+      placeholder: v0.1.0, or a commit SHA
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, and what Subact ID did in response.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+      description: What should have happened. Name the spec section or documentation page if one says so.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: The smallest set of steps that shows it, for example against the quickstart.
+    validations:
+      required: false
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: How you run it (Helm, Docker, from source), the storage, and the identity provider.
+    validations:
+      required: false
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Relevant log lines, with any secret removed.
+      render: text
+    validations:
+      required: false

@@ -1,0 +1,46 @@
+# Licensing information for the whole tree, in the REUSE format (https://reuse.software/spec-3.3/).
+# It stands in for a header in every file. A file with its own SPDX header keeps it, because the
+# precedence of the first paragraph is "aggregate": both apply. Where more than one paragraph
+# matches a file, the last one wins, so the paragraphs after the first narrow it. The text of
+# every licence named here is in LICENSES/, and CI's reuse job checks that this stays true.
+version = 1
+
+[[annotations]]
+path = "**"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2026 Nikola Živković PR Agencija za programerske usluge Novi Sad"
+SPDX-License-Identifier = "AGPL-3.0-or-later"
+
+# Third-party text kept as published, under its own licence and copyright.
+[[annotations]]
+path = "CODE_OF_CONDUCT.md"
+SPDX-FileCopyrightText = "Coraline Ada Ehmke and the Contributor Covenant contributors"
+SPDX-License-Identifier = "CC-BY-4.0"
+
+[[annotations]]
+path = ".gitignore"
+SPDX-FileCopyrightText = "GitHub, Inc. and the github/gitignore contributors"
+SPDX-License-Identifier = "CC0-1.0"
+
+# The documentation, the spec included, so other implementations and the website can carry it.
+[[annotations]]
+path = "docs/**"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2026 Nikola Živković PR Agencija za programerske usluge Novi Sad"
+SPDX-License-Identifier = "CC-BY-4.0"
+
+# What agent authors and operators copy into their own repositories: the samples, every deployment
+# file, the Keycloak module, the quickstart and the sizing rig.
+[[annotations]]
+path = [
+  "samples/**",
+  "deploy/helm/**",
+  "deploy/kubernetes/**",
+  "deploy/kind/**",
+  "deploy/keycloak/terraform/**",
+  "quickstart/**",
+  "bench/**",
+]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2026 Nikola Živković PR Agencija za programerske usluge Novi Sad"
+SPDX-License-Identifier = "Apache-2.0"

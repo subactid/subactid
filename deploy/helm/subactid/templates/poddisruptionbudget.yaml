@@ -1,0 +1,15 @@
+{{- if and .Values.podDisruptionBudget.enabled (gt (int .Values.replicaCount) 1) }}
+# Keeps replicas up through node drains and cluster upgrades. Skipped for a single replica, where
+# a budget would only block the drain.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "subactid.fullname" . }}
+  labels:
+    {{- include "subactid.labels" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "subactid.selectorLabels" . | nindent 6 }}
+{{- end }}

@@ -1,0 +1,130 @@
+# Example values for a production install. Copy it, change the names, and delete what you do
+# not use:
+#
+#     helm install subactid oci://ghcr.io/subactid/charts/subactid --version 0.1.0 -n subactid -f values.yaml
+#
+# The published chart exists once v0.1.0 is released. Until then, pass the chart directory,
+# deploy/helm/subactid, instead of the oci:// reference.
+#
+# Nothing here is a secret. Create the Secrets named below before the install, for example with
+# external-secret.yaml.
+#
+# Every other server setting has a value too, including signals mode and the SCIM and Shared
+# Signals receivers: docs/kubernetes.md lists them.
+
+issuer: https://subactid.example.com
+
+image:
+  repository: ghcr.io/subactid/subactid
+  tag: "0.1.0"
+  # To pin the exact image the release signed, set its digest; the tag is then not used.
+  # digest: "sha256:..."
+
+replicaCount: 3
+
+# At least one replica stays up through node drains and cluster upgrades.
+podDisruptionBudget:
+  minAvailable: 1
+
+upstream:
+  # For Keycloak, the realm URL is enough: discovery, token and admin users URLs derive from it.
+  # Other identity providers set those three explicitly.
+  issuer: https://kc.example.com/realms/corp
+  # The audience a subject token must carry.
+  audience: subactid
+  sponsorCheck:
+    # The client the control plane authenticates as, with an assertion signed by its signing
+    # key. Its service account needs only the read-users permission.
+    clientId: subactid
+
+database:
+  # A Secret with key `connection-string` for the server. This role should read and write rows
+  # only, with no DDL.
+  existingSecret: subactid-db
+  migration:
+    # A Secret with the same key, for a role that may change the schema. Only the migrate job
+    # gets it, never the server pod.
+    existingSecret: subactid-db-migrate
+
+signing:
+  # A Secret whose keys are PEM files, written by `keys generate` or projected by a secret
+  # manager (see external-secret.yaml).
+  existingSecret: subactid-signing
+  keys:
+    - key: 2026-09.pem
+      kid: "2026-09"
+  # Can stay empty with one key. During a rotation it picks the signing key (docs/kubernetes.md).
+  activeKid: ""
+
+admin:
+  # A Secret with key `api-key`, at least 32 characters. Without it the admin API and the
+  # audit query answer 503.
+  existingSecret: subactid-admin
+
+ingress:
+  enabled: true
+  className: public
+  host: subactid.example.com
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt
+  # Public paths only: the token endpoint and discovery documents. Never the admin API or audit query.
+  paths:
+    - /oauth2
+    - /.well-known
+  tls:
+    enabled: true
+    secretName: subactid-tls
+  admin:
+    # The admin API and audit query, on a controller reachable only from your network.
+    # Leave disabled to use a port-forward instead.
+    enabled: false
+    className: internal
+    host: subactid.internal.example.com
+    tls:
+      enabled: true
+      secretName: subactid-internal-tls
+
+# Required with an ingress: the ingress controller's pod network, whose X-Forwarded-For is
+# trusted. Without it every caller shares one rate limit. Replace this with your cluster's value.
+rateLimit:
+  trustedProxies: 10.244.0.0/16
+
+# Egress: the database, the identity provider and DNS only.
+networkPolicy:
+  enabled: true
+  database:
+    podSelector:
+      matchLabels:
+        app.kubernetes.io/name: postgresql
+    ports:
+      - 5432
+  upstream:
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: keycloak
+    ports:
+      - 8443
+  ingressFrom:
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: ingress-nginx
+
+# Optional sink that copies audit records to longer-term storage.
+audit:
+  sink:
+    url: ""
+
+resources:
+  requests:
+    cpu: 200m
+    memory: 256Mi
+  limits:
+    memory: 512Mi
+
+topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: topology.kubernetes.io/zone
+    whenUnsatisfiable: ScheduleAnyway
+    labelSelector:
+      matchLabels:
+        app.kubernetes.io/name: subactid

@@ -1,0 +1,112 @@
+{
+  "realm": "subactid-bench",
+  "displayName": "Subact ID sizing rig",
+  "enabled": true,
+  "sslRequired": "none",
+  "accessTokenLifespan": 3600,
+  "ssoSessionIdleTimeout": 7200,
+  "ssoSessionMaxLifespan": 36000,
+  "clientScopes": [
+    {
+      "name": "bench:read",
+      "description": "Read",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "false"
+      }
+    },
+    {
+      "name": "bench:write",
+      "description": "Write",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "false"
+      }
+    }
+  ],
+  "clients": [
+    {
+      "clientId": "bench-cli",
+      "name": "Sizing rig sign-in",
+      "description": "How the load generator obtains a subject token for each of the rig's humans. A public client on the password grant, because the rig has no browser; what it produces is an ordinary user access token, which is all the control plane ever sees.",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": false,
+      "fullScopeAllowed": false,
+      "defaultClientScopes": ["bench:read", "bench:write"],
+      "optionalClientScopes": [],
+      "protocolMappers": [
+        {
+          "name": "subject",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-sub-mapper",
+          "consentRequired": false,
+          "config": {
+            "access.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        },
+        {
+          "name": "subactid-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.custom.audience": "subactid",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "introspection.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "subactid",
+      "name": "Subact ID control plane",
+      "description": "The control plane's own client. It authenticates with a signed assertion checked against the keys it publishes, so no shared secret exists, and its service account may only read users — which is the call the sponsor check makes on every exchange.",
+      "enabled": true,
+      "publicClient": false,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "fullScopeAllowed": true,
+      "clientAuthenticatorType": "client-jwt",
+      "defaultClientScopes": [],
+      "optionalClientScopes": [],
+      "protocolMappers": [
+        {
+          "name": "service account roles",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-client-role-mapper",
+          "consentRequired": false,
+          "config": {
+            "multivalued": "true",
+            "access.token.claim": "true",
+            "introspection.token.claim": "true",
+            "claim.name": "resource_access.${client_id}.roles",
+            "jsonType.label": "String"
+          }
+        }
+      ],
+      "attributes": {
+        "use.jwks.url": "true",
+        "jwks.url": "http://subactid:5100/.well-known/jwks.json",
+        "token.endpoint.auth.signing.alg": "ES256"
+      }
+    }
+  ],
+  "users": [
+    {
+      "username": "service-account-subactid",
+      "enabled": true,
+      "serviceAccountClientId": "subactid",
+      "clientRoles": {
+        "realm-management": ["view-users"]
+      }
+    }
+  ]
+}

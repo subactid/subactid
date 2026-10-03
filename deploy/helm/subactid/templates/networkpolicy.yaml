@@ -1,0 +1,51 @@
+{{- if .Values.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "subactid.fullname" . }}
+  labels:
+    {{- include "subactid.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "subactid.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - ports:
+        - protocol: TCP
+          port: {{ .Values.containerPort }}
+      {{- $from := include "subactid.networkPolicy.peers" (merge (dict "cidrs" list) .Values.networkPolicy.ingressFrom) }}
+      {{- if ne $from "[]" }}
+      from:
+        {{- $from | nindent 8 }}
+      {{- end }}
+  # Egress: the database, the identity provider, DNS and whatever extraEgress adds.
+  egress:
+    {{- if .Values.networkPolicy.dns.enabled }}
+    - to:
+        - namespaceSelector:
+            {{- toYaml .Values.networkPolicy.dns.namespaceSelector | nindent 12 }}
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    {{- end }}
+    {{- range $target := list .Values.networkPolicy.database .Values.networkPolicy.upstream }}
+    {{- $peers := include "subactid.networkPolicy.peers" $target }}
+    {{- if ne $peers "[]" }}
+    - to:
+        {{- $peers | nindent 8 }}
+      ports:
+        {{- range $target.ports }}
+        - protocol: TCP
+          port: {{ . }}
+        {{- end }}
+    {{- end }}
+    {{- end }}
+    {{- with .Values.networkPolicy.extraEgress }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+{{- end }}

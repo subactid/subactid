@@ -1,0 +1,347 @@
+# Subact ID, the agent identity and delegation control plane.
+#
+# A minimum install needs four values: the issuer URL, the identity provider, and two Secret
+# names. Everything else has a default.
+#
+# The published chart below exists once v0.1.0 is released. Until then, install from a working
+# tree: see docs/kubernetes.md.
+#
+#   helm install subactid oci://ghcr.io/subactid/charts/subactid --version 0.1.0 \
+#     --set issuer=https://subactid.example.com \
+#     --set upstream.issuer=https://kc.example.com/realms/corp \
+#     --set database.existingSecret=subactid-db \
+#     --set signing.existingSecret=subactid-signing
+#
+# No value here is a secret. The chart references existing Secrets by name and never renders one.
+
+# The absolute URL clients reach this control plane at. It is the `iss` of every token and the
+# base URL in the discovery document.
+issuer: ""
+
+# Names. A release name that already contains the chart name is used as is.
+nameOverride: ""
+fullnameOverride: ""
+
+image:
+  repository: ghcr.io/subactid/subactid
+  # Defaults to the chart's appVersion.
+  tag: ""
+  # The image digest the release signed, "sha256:...". When set, the pods pull exactly that image
+  # and the tag is not used. docs/kubernetes.md shows how to verify the signature first.
+  digest: ""
+  pullPolicy: IfNotPresent
+  pullSecrets: []
+
+replicaCount: 2
+
+# A PodDisruptionBudget that keeps this many replicas up through node drains and cluster
+# upgrades. Rendered only when replicaCount is above one, since a budget on a single replica would
+# only block the drain. Keep minAvailable below replicaCount.
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+# The identity provider that issues subject tokens. Sponsors are re-checked against it on refresh.
+upstream:
+  # A Keycloak realm URL, for example https://kc.example.com/realms/corp. The three URLs below
+  # derive from it. Set them explicitly for other identity providers.
+  issuer: ""
+  # The `aud` a subject token must carry.
+  audience: subactid
+  # Derived: {issuer}/.well-known/openid-configuration
+  metadataUrl: ""
+  # The `typ` header values a subject token may carry, comma-separated, for example at+jwt.
+  # Empty accepts any. Keycloak marks its tokens JWT unless told otherwise; see docs/keycloak.md.
+  subjectTokenTypes: ""
+  # The claim each task records its human under, and that a signal names the human by. Empty is sub.
+  sponsorKeyClaim: ""
+  sponsorCheck:
+    # How the control plane learns that a human may no longer be acted for. poll asks the
+    # identity provider's admin API, using the four values below. signals asks nothing and
+    # waits for Shared Signals, SCIM or a back-channel logout: leave usersUrl, tokenUrl and
+    # cacheTtl empty then, as the chart refuses them, like the server does.
+    mode: poll
+    # The client the control plane authenticates as, with a signed assertion. No shared secret.
+    clientId: subactid
+    # Derived: {base}/admin/realms/{realm}/users
+    usersUrl: ""
+    # Derived: {issuer}/protocol/openid-connect/token
+    tokenUrl: ""
+    # How long a sponsor's status is reused. Never longer than a token's lifetime.
+    cacheTtl: ""
+  # Back-channel logout at /backchannel-logout. Set the audience to the human-facing client id,
+  # which is what a logout token names. Empty leaves the route off.
+  backchannelLogout:
+    audience: ""
+
+# Postgres. The chart does not support the single-node embedded provider (docs/storage.md).
+database:
+  # Name of a Secret holding the connection string the server runs as. Required.
+  existingSecret: ""
+  existingSecretKey: connection-string
+  # A role that may change the schema, used only by the migrate job. Empty migrates with the
+  # connection string above. Safer: give the server a role without DDL and put the DDL role here.
+  migration:
+    existingSecret: ""
+    existingSecretKey: connection-string
+
+# Token signing keys, projected from a Secret as files. The chart never generates a key.
+signing:
+  # Name of a Secret holding one PEM per key. Required.
+  existingSecret: ""
+  # Where the keys are mounted, read-only.
+  mountPath: /etc/subactid/signing
+  # The keys to publish, in order. The first is the signer unless activeKid says otherwise.
+  keys:
+    # Key within the Secret, projected as a file of the same name.
+    - key: active.pem
+      # Optional; the RFC 7638 thumbprint is used when empty.
+      kid: ""
+  # Which kid signs. Required when more than one key is listed. All listed keys are published.
+  activeKid: ""
+
+# The admin API and the audit query. Without a key they answer 503.
+admin:
+  existingSecret: ""
+  existingSecretKey: api-key
+
+# Optional external sink that receives a copy of the audit ledger.
+audit:
+  sink:
+    url: ""
+    # Bearer token for the sink, if it wants one. Requires an https URL.
+    existingSecret: ""
+    existingSecretKey: bearer-token
+  drainInterval: ""
+  drainBatchSize: ""
+  # Time between sealing passes: the longest a record stays outside a signed checkpoint.
+  checkpointInterval: ""
+  # How long the ledger keeps a month's records, at least P31D. Empty keeps them all.
+  retention: ""
+  # Months of ledger partitions created ahead of the current one, by the migrate job and the
+  # server. Empty is 2.
+  partitionMonthsAhead: ""
+  # Denials that name nobody are recorded once per reason per window, with a count. Counts are
+  # held in memory until the window closes, so a crash can lose at most one window of counts.
+  aggregation:
+    enabled: ""
+    window: ""
+
+# Rate limiting for endpoints that need no credential. Liveness and readiness are never limited.
+rateLimit:
+  enabled: ""
+  # Sustained requests per minute from one source, and the burst allowed above it. Per replica,
+  # so n replicas admit n times the rate. A fleet behind one egress address counts as one source.
+  permitsPerMinute: ""
+  burst: ""
+  # Comma-separated CIDRs whose X-Forwarded-For is trusted. REQUIRED when ingress.enabled is
+  # true, or every request counts as the ingress. Set it to the ingress controller's pod
+  # network. The server refuses to start with 0.0.0.0/0.
+  trustedProxies: ""
+  # The back-channel logout, SCIM and Shared Signals receivers, per receiver per source. An
+  # identity provider does not retry a refused signal, so the server's default burst is large.
+  signals:
+    permitsPerMinute: ""
+    burst: ""
+  # Token introspection, per source.
+  introspection:
+    permitsPerMinute: ""
+    burst: ""
+
+# How many requests run at once, per kind, and how many may wait for a turn. Past that a
+# request is refused at once instead of slowing every other one down.
+overload:
+  enabled: ""
+  # Empty is 16 per core the process may use.
+  concurrencyLimit: ""
+  # Empty is 4 times concurrencyLimit.
+  queueLimit: ""
+  queueTimeout: ""
+
+# Fetches of the key set an agent registers by jwks_uri.
+agentKeys:
+  # true refuses a jwks_uri that resolves only to addresses that are not public. Empty is false.
+  blockPrivateNetworks: ""
+
+# true lets the issuer, the identity provider, the Shared Signals transmitter and the audit sink
+# be plain http on a host that is not loopback. For demos and trusted networks only. Empty is false.
+allowInsecureHttp: ""
+
+# The SCIM receiver at /scim/v2/Users, where a provisioning client deactivates people. Off
+# unless existingSecret is set, and the chart refuses the other values here without it.
+scim:
+  # Name of a Secret holding the credential the client presents, at least 32 characters.
+  existingSecret: ""
+  existingSecretKey: bearer-token
+  # During a rotation, the key within the same Secret that holds the credential being replaced.
+  previousSecretKey: ""
+  # externalId or userName: the attribute that names the person. Empty is externalId.
+  sponsorKeyAttribute: ""
+  # Most user records held. Empty is 50000.
+  maxUsers: ""
+
+# The Shared Signals receiver at /events, where a transmitter pushes security events. Off
+# unless issuer is set, and the chart refuses the other values here without it.
+ssf:
+  # The transmitter's issuer URL. Its discovery document and keys are fetched from it.
+  issuer: ""
+  # The audience every event must carry. Required with issuer.
+  audience: ""
+  # Name of a Secret holding the credential the transmitter presents when it pushes, at least
+  # 32 characters. Required with issuer.
+  existingSecret: ""
+  existingSecretKey: bearer-token
+  # During a rotation, the key within the same Secret that holds the credential being replaced.
+  previousSecretKey: ""
+
+# Default lifetimes for an agent registration that sets none. Not a ceiling.
+tokens:
+  defaultTaskTtl: ""
+  defaultTokenTtl: ""
+
+# Bounds on every agent registration's lifetimes. Use these to cap lifetimes deployment-wide.
+agents:
+  minTaskTtl: ""
+  maxTaskTtl: ""
+  minTokenTtl: ""
+  maxTokenTtl: ""
+
+# The expiry sweeper, and how long a finished task is kept before its row is removed.
+tasks:
+  sweepInterval: ""
+  sweepBatchSize: ""
+  retention: ""
+
+# How long a logout or a session-revoked event keeps refusing the subject tokens it signed out.
+# At least the identity provider's longest access-token lifetime, at most P30D. Empty is PT24H.
+revocations:
+  signOutRetention: ""
+
+# Schema migrations run only as a pre-install and pre-upgrade hook Job, never at server startup.
+migrate:
+  enabled: true
+  backoffLimit: 1
+  activeDeadlineSeconds: 600
+  resources: {}
+  podAnnotations: {}
+
+service:
+  type: ClusterIP
+  port: 80
+  annotations: {}
+
+# The port the container listens on. The published image defaults to this.
+containerPort: 5100
+
+# Public ingress for the token endpoint and discovery documents only. The admin API and audit
+# query are never routed here.
+ingress:
+  enabled: false
+  className: ""
+  host: ""
+  annotations: {}
+  # Public paths. The chart refuses /admin and /audit here. Use the admin ingress for those.
+  paths:
+    - /oauth2
+    - /.well-known
+  tls:
+    enabled: false
+    secretName: ""
+  # Optional second ingress for the admin API and audit query, for an internal-only controller.
+  # Needs a host.
+  admin:
+    enabled: false
+    className: ""
+    host: ""
+    annotations: {}
+    paths:
+      - /admin
+      - /audit
+    tls:
+      enabled: false
+      secretName: ""
+
+# Restricts egress to the identity provider, the database and DNS. Off by default, since the
+# selectors below depend on where those run.
+networkPolicy:
+  enabled: false
+  # Where the database is. A selector, a CIDR, or both.
+  database:
+    podSelector: {}
+    namespaceSelector: {}
+    cidrs: []
+    ports:
+      - 5432
+  # Where the identity provider is.
+  upstream:
+    podSelector: {}
+    namespaceSelector: {}
+    cidrs: []
+    ports:
+      - 443
+  # Where requests come from. Empty allows every pod in the cluster to reach the service.
+  ingressFrom:
+    podSelector: {}
+    namespaceSelector: {}
+    cidrs: []
+  # DNS, which egress rules break without.
+  dns:
+    enabled: true
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: kube-system
+  # More egress rules, as NetworkPolicy egress entries. The audit sink, a Shared Signals
+  # transmitter on other hosts than the identity provider, an agent registered with a jwks_uri
+  # and an HTTPS proxy each need one.
+  extraEgress: []
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
+  # The published image's group. The signing key is mounted group-readable only, so other
+  # containers in the pod cannot read it. Change it together with the image.
+  fsGroup: 1654
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 192Mi
+  limits:
+    memory: 512Mi
+
+# Serilog minimum levels.
+logging:
+  minimumLevel: ""
+  overrides: {}
+
+# More environment variables for every container, for what has no value above, such as
+# HTTPS_PROXY. Every Subact ID setting has a value above, so the chart refuses one here.
+extraEnv: []
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+topologySpreadConstraints: []
+
+# `helm test` calls the readiness probe from inside the cluster. Uses the application image by default.
+tests:
+  enabled: true
+  image:
+    repository: ""
+    tag: ""

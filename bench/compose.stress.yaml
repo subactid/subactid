@@ -1,0 +1,10 @@
+# Overrides stress.sh adds to the sizing rig. The instance restarts if it dies, as it would under
+# an orchestrator.
+services:
+  subactid:
+    restart: unless-stopped
+    # All load comes from one address, so the introspection limit is raised above the offered
+    # load. The `limiter` scenario tests the shipped defaults.
+    environment:
+      SubactId__RateLimit__Introspection__PermitsPerMinute: ${SUBACTID_RATELIMIT_INTROSPECTION_PERMITS:-600000}
+      SubactId__RateLimit__Introspection__Burst: ${SUBACTID_RATELIMIT_INTROSPECTION_BURST:-20000}

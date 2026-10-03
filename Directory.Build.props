@@ -1,0 +1,35 @@
+<Project>
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <!-- Version for local builds. A release overrides it with -p:Version=<tag>. -->
+    <Version>0.1.0-dev</Version>
+  </PropertyGroup>
+
+  <!-- Ownership and licence metadata, written into every assembly. No NuGet packages are
+       published, so nothing is packable. -->
+  <PropertyGroup>
+    <Authors>Nikola Živković PR Agencija za programerske usluge Novi Sad</Authors>
+    <Company>Nikola Živković PR Agencija za programerske usluge Novi Sad</Company>
+    <Copyright>Copyright (C) 2026 Nikola Živković PR Agencija za programerske usluge Novi Sad</Copyright>
+    <PackageLicenseExpression>AGPL-3.0-or-later</PackageLicenseExpression>
+    <RepositoryUrl>https://github.com/subactid/subactid</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageProjectUrl>https://subactid.com</PackageProjectUrl>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <!-- Reproducible restores and builds. The lock file beside each project pins its whole dependency
+       graph, transitive packages included. CI and the Dockerfiles restore in locked mode, so a
+       restore that would change a lock file fails instead of updating it. -->
+  <PropertyGroup>
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+    <RestoreLockedMode Condition="'$(GITHUB_ACTIONS)' == 'true'">true</RestoreLockedMode>
+    <ContinuousIntegrationBuild Condition="'$(GITHUB_ACTIONS)' == 'true'">true</ContinuousIntegrationBuild>
+  </PropertyGroup>
+</Project>

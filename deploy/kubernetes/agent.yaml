@@ -1,0 +1,53 @@
+# A registered agent, in the admin API's shape (spec section 2). This is the most the agent
+# may ever do. Each task narrows it further.
+#
+# `agent apply` creates or patches it to match, and is a no-op when it already matches.
+# See docs/gitops.md.
+#
+#   kubectl -n subactid port-forward svc/subactid 5100:80 &
+#   export SUBACTID_ADMIN_KEY=$(kubectl -n subactid get secret subactid-admin -o jsonpath='{.data.api-key}' | base64 -d)
+#   SubactId.Server agent apply deploy/kubernetes/agent.yaml --server http://127.0.0.1:5100
+
+agent_id: jira-triage
+display_name: Jira triage agent
+
+# Every task runs on behalf of a human. v0.1 accepts only true.
+sponsor_required: true
+
+# The ceiling. A task gets the intersection of these, the human's scopes and the requested scopes.
+allowed_scopes:
+  - jira:read
+  - jira:comment
+
+allowed_audiences:
+  - https://jira.internal
+  - https://confluence.internal
+
+# A task may run for 30 minutes. Each token it holds lives at most 5 minutes.
+max_task_ttl: PT30M
+max_token_ttl: PT5M
+
+# How deep this agent may delegate. 1 means it may not.
+max_delegation_depth: 2
+
+# Audiences where a tool server must introspect every call with the control plane.
+# Slower, but revocation takes effect at once.
+high_risk_audiences:
+  - https://db.internal
+
+# Where the agent publishes the public key for its assertions. https only.
+#
+# Alternatively, as `agent init` writes it, hold the keys here:
+#
+#   jwks:
+#     keys:
+#       - kid: ...
+#         kty: EC
+#         crv: P-256
+#         x: ...
+#         y: ...
+#         alg: ES256
+#         use: sig
+#
+# The control plane then serves them at /agents/jira-triage/jwks.json. Set one or the other, never both.
+jwks_uri: https://jira-triage.internal.example.com/jwks.json

@@ -1,0 +1,227 @@
+{
+  "realm": "subactid-demo",
+  "displayName": "Subact ID quickstart",
+  "enabled": true,
+  "sslRequired": "none",
+  "accessTokenLifespan": 900,
+  "roles": {
+    "realm": [
+      {
+        "name": "jira-commenter",
+        "description": "May comment on issues."
+      }
+    ]
+  },
+  "scopeMappings": [
+    {
+      "clientScope": "jira:comment",
+      "roles": ["jira-commenter"]
+    }
+  ],
+  "clientScopes": [
+    {
+      "name": "jira:read",
+      "description": "Read issues",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "false"
+      }
+    },
+    {
+      "name": "jira:comment",
+      "description": "Comment on issues",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "false"
+      }
+    }
+  ],
+  "clients": [
+    {
+      "clientId": "demo-cli",
+      "name": "Quickstart sign-in",
+      "description": "How the demo user signs in. A public client with the password grant, so the quickstart needs no browser; a real deployment uses the browser flow.",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": false,
+      "fullScopeAllowed": false,
+      "defaultClientScopes": ["jira:read", "jira:comment"],
+      "optionalClientScopes": [],
+      "protocolMappers": [
+        {
+          "name": "subject",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-sub-mapper",
+          "consentRequired": false,
+          "config": {
+            "access.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        },
+        {
+          "name": "subactid-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.custom.audience": "subactid",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "introspection.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "demo-portal",
+      "name": "Quickstart portal",
+      "description": "The browser application the human signs in to. A public client on the authorization code flow with PKCE, which is how a real application signs a user in; demo-cli beside it keeps the password grant the scripted story uses.",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": false,
+      "fullScopeAllowed": false,
+      "rootUrl": "http://localhost:8090",
+      "redirectUris": ["http://localhost:8090/callback"],
+      "webOrigins": ["http://localhost:8090"],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "http://localhost:8090/*"
+      },
+      "defaultClientScopes": ["jira:read", "jira:comment"],
+      "optionalClientScopes": [],
+      "protocolMappers": [
+        {
+          "name": "subject",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-sub-mapper",
+          "consentRequired": false,
+          "config": {
+            "access.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        },
+        {
+          "name": "subactid-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.custom.audience": "subactid",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "introspection.token.claim": "true"
+          }
+        },
+        {
+          "name": "username",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "username",
+            "claim.name": "preferred_username",
+            "jsonType.label": "String",
+            "access.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        },
+        {
+          "name": "realm roles",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-realm-role-mapper",
+          "consentRequired": false,
+          "config": {
+            "multivalued": "true",
+            "access.token.claim": "true",
+            "introspection.token.claim": "true",
+            "claim.name": "realm_access.roles",
+            "jsonType.label": "String"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "subactid",
+      "name": "Subact ID control plane",
+      "description": "The control plane's own client. It authenticates with a signed assertion checked against its published keys, so no shared secret exists, and its service account may only read users.",
+      "enabled": true,
+      "publicClient": false,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "fullScopeAllowed": true,
+      "clientAuthenticatorType": "client-jwt",
+      "defaultClientScopes": [],
+      "optionalClientScopes": [],
+      "protocolMappers": [
+        {
+          "name": "service account roles",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-client-role-mapper",
+          "consentRequired": false,
+          "config": {
+            "multivalued": "true",
+            "access.token.claim": "true",
+            "introspection.token.claim": "true",
+            "claim.name": "resource_access.${client_id}.roles",
+            "jsonType.label": "String"
+          }
+        }
+      ],
+      "attributes": {
+        "use.jwks.url": "true",
+        "jwks.url": "http://subactid:5100/.well-known/jwks.json",
+        "token.endpoint.auth.signing.alg": "ES256"
+      }
+    }
+  ],
+  "users": [
+    {
+      "id": "11111111-1111-4111-8111-111111111111",
+      "username": "demo",
+      "firstName": "Demo",
+      "lastName": "User",
+      "email": "demo@subactid.invalid",
+      "emailVerified": true,
+      "enabled": true,
+      "realmRoles": ["jira-commenter"],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "demo",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "id": "22222222-2222-4222-8222-222222222222",
+      "username": "viewer",
+      "firstName": "View",
+      "lastName": "Only",
+      "email": "viewer@subactid.invalid",
+      "emailVerified": true,
+      "enabled": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "viewer",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "username": "service-account-subactid",
+      "enabled": true,
+      "serviceAccountClientId": "subactid",
+      "clientRoles": {
+        "realm-management": ["view-users"]
+      }
+    }
+  ]
+}

@@ -1,0 +1,73 @@
+{{- if .Values.tests.enabled }}
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ include "subactid.fullname" . }}-test-readiness
+  labels:
+    {{- include "subactid.labels" . | nindent 4 }}
+    app.kubernetes.io/component: test
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-delete-policy: before-hook-creation
+spec:
+  restartPolicy: Never
+  # Calls no Kubernetes API.
+  automountServiceAccountToken: false
+  {{- with .Values.image.pullSecrets }}
+  imagePullSecrets:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  securityContext:
+    {{- toYaml .Values.podSecurityContext | nindent 4 }}
+  containers:
+    - name: readiness
+      # Defaults to the application image.
+      image: {{ if .Values.tests.image.repository }}{{ printf "%s:%s" .Values.tests.image.repository (default .Chart.AppVersion .Values.tests.image.tag) | quote }}{{ else }}{{ include "subactid.image" . | quote }}{{ end }}
+      imagePullPolicy: {{ .Values.image.pullPolicy }}
+      securityContext:
+        {{- toYaml .Values.securityContext | nindent 8 }}
+      # The server's settings, its database connection string and its signing key, for 'doctor'
+      # to check. It never prints a token or a secret. The admin API key, the SCIM and Shared
+      # Signals credentials and the audit sink's token stay with the server, so doctor reports the
+      # admin API, SCIM and the signals receiver as off here.
+      env:
+        {{- include "subactid.env.common" . | trim | nindent 8 }}
+        {{- include "subactid.env.database" . | trim | nindent 8 }}
+        {{- include "subactid.env.signing" . | trim | nindent 8 }}
+        {{- with include "subactid.env.extra" . | trim }}
+        {{- . | nindent 8 }}
+        {{- end }}
+      command:
+        - bash
+        - -ec
+        - |
+          # Check configuration and dependencies from a pod.
+          dotnet /app/SubactId.Server.dll doctor
+
+          # Then check the running server's readiness, which covers its database, signing key and
+          # upstream keys.
+          exec 3<>/dev/tcp/{{ include "subactid.fullname" . }}/{{ .Values.service.port }}
+          printf 'GET /readyz HTTP/1.1\r\nHost: {{ include "subactid.fullname" . }}\r\nConnection: close\r\n\r\n' >&3
+          answer=$(cat <&3)
+          printf '%s\n' "$answer"
+          printf '%s' "$answer" | head -1 | grep -q ' 200 ' || { echo "the control plane is not ready"; exit 1; }
+      volumeMounts:
+        # The same signing key the server mounts, so 'doctor' checks the real one.
+        - name: signing
+          mountPath: {{ .Values.signing.mountPath | quote }}
+          readOnly: true
+        - name: tmp
+          mountPath: /tmp
+  volumes:
+    - name: signing
+      secret:
+        secretName: {{ required "signing.existingSecret is required: the name of a Secret holding the signing key PEM" .Values.signing.existingSecret | quote }}
+        defaultMode: 0440
+        items:
+          {{- range .Values.signing.keys }}
+          - key: {{ .key | quote }}
+            path: {{ .key | quote }}
+          {{- end }}
+    - name: tmp
+      emptyDir: {}
+{{- end }}

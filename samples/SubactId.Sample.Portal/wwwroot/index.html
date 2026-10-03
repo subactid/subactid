@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Subact ID portal</title>
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <h1>Subact ID portal <span>&mdash; an agent acting for you</span></h1>
+    <div class="who" id="who" hidden>
+      signed in as <b id="whoName"></b>
+      <button id="signOut">sign out</button>
+    </div>
+  </header>
+
+  <div id="error" class="banner deny" hidden></div>
+
+  <!-- Signed out -->
+  <section id="signedOut" hidden>
+    <div class="panel signin">
+      <h2>Sign in, then watch what the agent is allowed to do</h2>
+      <p>
+        You sign in to this page. The page hands your token to an agent exactly once, and the
+        agent trades it for one of its own &mdash; still in your name, narrower than you, and
+        good for minutes rather than hours. Everything after that is the agent's token, never
+        yours.
+      </p>
+      <form id="passwordForm" hidden>
+        <div class="login">
+          <input id="username" name="username" placeholder="username" autocomplete="username" value="demo">
+          <input id="password" name="password" type="password" placeholder="password" autocomplete="current-password" value="demo">
+          <button class="primary" type="submit">Sign in</button>
+        </div>
+      </form>
+      <button class="primary" id="signIn" hidden>Sign in with Keycloak</button>
+      <div class="accounts">
+        <button class="account" data-as="demo"><b>demo</b> / demo<br>holds <b>jira-commenter</b></button>
+        <button class="account" data-as="viewer"><b>viewer</b> / viewer<br>holds no role</button>
+      </div>
+      <p class="note">
+        The same agent behaves differently for these two people, and never finds out why: the
+        role decides which scopes the identity provider will put in a token, and the agent can
+        only ever narrow what it is given.
+      </p>
+    </div>
+  </section>
+
+  <!-- Signed in -->
+  <div id="signedIn" hidden>
+
+    <section>
+      <h2>The two tokens</h2>
+      <div class="tokens">
+        <div class="token human">
+          <h3>Your token</h3>
+          <p class="sub">From Keycloak. It stays in this page's server and goes to the agent once.</p>
+          <dl class="claims" id="humanClaims"></dl>
+        </div>
+        <div class="token agent empty" id="agentToken">
+          <div>No task yet. Start one below and the agent's token appears here.</div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Start a task</h2>
+      <div class="panel">
+        <div class="controls">
+          <label class="field">
+            <span>Shape</span>
+            <div class="choices" id="kinds"></div>
+          </label>
+          <label class="field">
+            <span>Ask for</span>
+            <div class="choices">
+              <label class="choice"><input type="checkbox" name="scope" value="jira:read" checked> jira:read</label>
+              <label class="choice"><input type="checkbox" name="scope" value="jira:comment" checked> jira:comment</label>
+            </div>
+          </label>
+          <button class="primary" id="start">Start task</button>
+        </div>
+        <p class="note" id="startNote"></p>
+      </div>
+    </section>
+
+    <section id="taskSection" hidden>
+      <h2>The task</h2>
+      <div class="panel">
+        <div id="taskBanner" class="banner ended" hidden></div>
+        <div class="actions">
+          <span class="note tight">Call a tool with the task token:</span>
+          <span id="toolButtons"></span>
+          <span class="spacer"></span>
+          <button class="wrong" id="tryHuman" title="Send your Keycloak token to the tool server in place of the agent's">try your own token instead</button>
+        </div>
+        <div class="actions">
+          <span class="note tight">Task:</span>
+          <button id="renew">renew the token now</button>
+          <button id="narrow">narrow to jira:read</button>
+          <span class="spacer"></span>
+          <button class="danger" id="revoke">revoke the task</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="logSection" hidden>
+      <h2>What happened</h2>
+      <div class="panel log" id="log"></div>
+    </section>
+
+    <section>
+      <h2>The ledger &mdash; every decision made in your name</h2>
+      <div class="panel">
+        <div class="tablewrap">
+          <table>
+            <thead>
+              <tr><th>seq</th><th>event</th><th>decision</th><th>reason</th><th>agent</th><th>scope</th></tr>
+            </thead>
+            <tbody id="ledger"></tbody>
+          </table>
+        </div>
+        <p class="note">
+          Written by the control plane, not by this page, and sealed by signed checkpoints.
+          Denials are in here for the same reason allows are.
+        </p>
+      </div>
+    </section>
+
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

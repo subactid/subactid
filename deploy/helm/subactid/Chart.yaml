@@ -1,0 +1,20 @@
+apiVersion: v2
+name: subactid
+description: Agent identity and delegation control plane — short-lived, scoped tokens that let an AI agent act on behalf of a specific human.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+home: https://github.com/subactid/subactid
+sources:
+  - https://github.com/subactid/subactid
+keywords:
+  - oauth2
+  - token-exchange
+  - delegation
+  - agents
+maintainers:
+  - name: subactid
+    email: support@subactid.com
+    url: https://github.com/subactid
+annotations:
+  artifacthub.io/license: AGPL-3.0-or-later

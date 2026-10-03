@@ -1,0 +1,135 @@
+# Every chart value that becomes a server setting, in poll mode, each set to something other than
+# its default. CI renders the chart with it and loads what each container gets with the server
+# itself, so a value that maps to no setting, or to one the server refuses, fails the build.
+issuer: https://subactid.example.com
+
+upstream:
+  issuer: https://kc.example.com/realms/corp
+  audience: subactid
+  subjectTokenTypes: at+jwt
+  sponsorKeyClaim: email
+  sponsorCheck:
+    mode: poll
+    clientId: subactid-control-plane
+    cacheTtl: PT20S
+  backchannelLogout:
+    audience: workbench
+
+database:
+  existingSecret: subactid-db
+  migration:
+    existingSecret: subactid-db-migrate
+
+signing:
+  existingSecret: subactid-signing
+  keys:
+    - key: 2026-09.pem
+      kid: "2026-09"
+    - key: 2026-12.pem
+      kid: "2026-12"
+  activeKid: "2026-09"
+
+admin:
+  existingSecret: subactid-admin
+
+audit:
+  sink:
+    url: https://siem.example.com/subactid
+    existingSecret: subactid-audit-sink
+  drainInterval: PT10S
+  drainBatchSize: 250
+  checkpointInterval: PT2M
+  retention: P400D
+  partitionMonthsAhead: 3
+  aggregation:
+    enabled: false
+    window: PT2M
+
+rateLimit:
+  enabled: true
+  permitsPerMinute: 1200
+  burst: 240
+  trustedProxies: 10.244.0.0/16
+  signals:
+    # A million on purpose: from a values file Helm reads it as a float, which must still be
+    # written as a whole number.
+    permitsPerMinute: 1000000
+    burst: 20000
+  introspection:
+    permitsPerMinute: 12000
+    burst: 2400
+
+overload:
+  enabled: true
+  concurrencyLimit: 32
+  queueLimit: 0
+  queueTimeout: PT2S
+
+agentKeys:
+  blockPrivateNetworks: true
+
+scim:
+  existingSecret: subactid-scim
+  previousSecretKey: previous-bearer-token
+  sponsorKeyAttribute: userName
+  maxUsers: 1000000
+
+ssf:
+  issuer: https://transmitter.example.com
+  audience: https://subactid.example.com/events
+  existingSecret: subactid-ssf
+  previousSecretKey: previous-bearer-token
+
+tokens:
+  defaultTaskTtl: PT20M
+  defaultTokenTtl: PT4M
+
+agents:
+  minTaskTtl: PT2M
+  maxTaskTtl: PT12H
+  minTokenTtl: PT1M
+  maxTokenTtl: PT30M
+
+tasks:
+  sweepInterval: PT30S
+  sweepBatchSize: 50
+  retention: P14D
+
+revocations:
+  signOutRetention: PT12H
+
+ingress:
+  enabled: true
+  host: subactid.example.com
+  paths:
+    - /oauth2
+    - /.well-known
+    - /backchannel-logout
+    - /scim
+    - /events
+
+logging:
+  minimumLevel: Information
+  overrides:
+    Microsoft.AspNetCore: Warning
+
+extraEnv:
+  - name: DOTNET_gcServer
+    value: "0"
+
+networkPolicy:
+  enabled: true
+  database:
+    cidrs:
+      - 10.10.0.0/24
+  upstream:
+    cidrs:
+      - 10.20.0.0/24
+  extraEgress:
+    # The audit sink and the transmitter.
+    - to:
+        - ipBlock:
+            cidr: 203.0.113.0/24
+      ports:
+        - protocol: TCP
+          port: 443

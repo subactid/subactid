@@ -1,0 +1,111 @@
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "subactid.fullname" . }}
+  labels:
+    {{- include "subactid.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "subactid.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "subactid.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "subactid.serviceAccountName" . }}
+      {{- with .Values.image.pullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: subactid
+          image: {{ include "subactid.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.containerPort }}
+              protocol: TCP
+          env:
+            {{- include "subactid.env.common" . | trim | nindent 12 }}
+            {{- include "subactid.env.database" . | trim | nindent 12 }}
+            {{- include "subactid.env.signing" . | trim | nindent 12 }}
+            {{- with include "subactid.env.server" . | trim }}
+            {{- . | nindent 12 }}
+            {{- end }}
+            {{- with include "subactid.env.extra" . | trim }}
+            {{- . | nindent 12 }}
+            {{- end }}
+          # Liveness checks only that the process serves. Readiness also checks the database,
+          # signing key and upstream JWKS, so a failing pod is taken out of rotation, not restarted.
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 3
+            failureThreshold: 20
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: signing
+              mountPath: {{ .Values.signing.mountPath | quote }}
+              readOnly: true
+            # Writable scratch space, since the root filesystem is read-only.
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: signing
+          secret:
+            secretName: {{ required "signing.existingSecret is required: the name of a Secret holding the signing key PEM" .Values.signing.existingSecret | quote }}
+            # Group-readable only. podSecurityContext.fsGroup gives the container that group.
+            defaultMode: 0440
+            items:
+              {{- range .Values.signing.keys }}
+              - key: {{ .key | quote }}
+                path: {{ .key | quote }}
+              {{- end }}
+        - name: tmp
+          emptyDir: {}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/SubactId.Server/SubactId.Server.csproj" />
+    <ProjectReference Include="../../src/SubactId.Storage.Postgres/SubactId.Storage.Postgres.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.12" />
+    <PackageReference Include="Testcontainers.PostgreSql" Version="4.15.0" />
+  </ItemGroup>
+
+</Project>
