@@ -24,7 +24,7 @@ spec:
     spec:
       containers:
         - name: postgres
-          image: postgres:18-alpine
+          image: postgres:18
           env:
             - name: POSTGRES_DB
               value: subactid

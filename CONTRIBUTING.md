@@ -111,5 +111,13 @@ The images CI and the release run as tools (Trivy, QEMU's binfmt and the registr
 digest in `.github/tools/Dockerfile`, where Dependabot keeps them current. Pin a new one there
 and read it with `.github/scripts/tool-image.sh`, never inline.
 
+Postgres and Keycloak are pinned by digest in `quickstart/compose.yaml`, and Postgres in
+`bench/compose.yaml`, where Dependabot keeps them current. CI's service containers, the Keycloak
+its `keycloak` job starts and the kind manifest name the same images in files Dependabot does not
+cover. When it bumps the compose files, bump those by hand in the same pull request, to the digest
+`docker buildx imagetools inspect <image:tag>` prints. `.github/scripts/check-image-pins.sh`,
+which CI runs, lists every such reference and fails while one differs from the quickstart's; the
+integration tests' default image must name the quickstart's tag the same way.
+
 CI lints and renders the chart but never installs it. Before tagging, install it into a kind
 cluster with [`deploy/kind/README.md`](deploy/kind/README.md).

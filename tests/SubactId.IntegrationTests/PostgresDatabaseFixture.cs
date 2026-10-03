@@ -29,7 +29,7 @@ public sealed class PostgresDatabaseFixture : IStorageFixture, IAsyncLifetime
     public const string ImageVariable = "SUBACTID_TEST_POSTGRES_IMAGE";
 
     /// <summary>The image started when neither variable is set: the version CI and the quickstart run.</summary>
-    public const string DefaultImage = "postgres:18-alpine";
+    public const string DefaultImage = "postgres:18";
 
     private PostgreSqlContainer? container;
     private string adminConnectionString = string.Empty;

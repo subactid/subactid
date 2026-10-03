@@ -32,6 +32,11 @@ jobs:
             echo "::error::The previous project name is back in the files above. Use Subact ID, SubactId or subactid."
             exit 1
           fi
+      # Postgres and Keycloak are pinned in the quickstart's compose file, where Dependabot keeps
+      # them current. The jobs below, the kind manifest and the integration tests name the same
+      # images in files it does not cover.
+      - name: Check every image pin names the quickstart's
+        run: .github/scripts/check-image-pins.sh
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           dotnet-version: '10.0.x'
@@ -48,7 +53,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      SUBACTID_TEST_POSTGRES_IMAGE: postgres:16-alpine
+      SUBACTID_TEST_POSTGRES_IMAGE: postgres:16
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
