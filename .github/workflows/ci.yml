@@ -394,11 +394,8 @@ jobs:
       - name: Report its known vulnerabilities
         run: .github/scripts/scan-image.sh report subactid:ci trivy.sarif
       - name: Publish the report to code scanning
-        # Code scanning needs GitHub Advanced Security on a private repository, and a pull
-        # request from a fork cannot write to it.
-        if: >-
-          !github.event.repository.private
-          && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        # A pull request from a fork cannot write to code scanning.
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
         uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
         with:
           sarif_file: trivy.sarif
