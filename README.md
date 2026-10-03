@@ -4,7 +4,7 @@ Subact ID is an agent identity and delegation control plane. It issues short-liv
 that let an AI agent act on behalf of a specific human, and it records every decision in a
 ledger that names that human.
 
-Status: pre-release, targeting v0.1.
+Status: v0.1, the first release. The API is the v0.1 contract in [the spec](docs/spec/v0.1.md).
 
 ## The problem
 
@@ -160,8 +160,7 @@ SubactId.Server agent apply agents/*.yaml --server https://subactid.example.com
 
 There is a Helm chart in [`deploy/helm/subactid`](deploy/helm/subactid) and an annotated reference
 install in [`deploy/kubernetes`](deploy/kubernetes). A tagged release publishes the image and
-the chart to GHCR, signed with cosign, with an SBOM attached to the image. No release has been
-tagged, so install the chart from a working tree.
+the chart to GHCR, signed with cosign, with an SBOM attached to the image.
 [Kubernetes](docs/kubernetes.md) has the install steps.
 
 ## Documentation

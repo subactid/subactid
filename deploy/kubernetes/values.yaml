@@ -3,8 +3,8 @@
 #
 #     helm install subactid oci://ghcr.io/subactid/charts/subactid --version 0.1.0 -n subactid -f values.yaml
 #
-# The published chart exists once v0.1.0 is released. Until then, pass the chart directory,
-# deploy/helm/subactid, instead of the oci:// reference.
+# To install from a working tree instead, pass the chart directory, deploy/helm/subactid, in
+# place of the oci:// reference.
 #
 # Nothing here is a secret. Create the Secrets named below before the install, for example with
 # external-secret.yaml.
