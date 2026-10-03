@@ -162,8 +162,17 @@ jobs:
           DIGEST: ${{ steps.image.outputs.digest }}
         run: |
           set -euo pipefail
-          image="localhost:5000/subactid@${DIGEST}"
+          index="localhost:5000/subactid@${DIGEST}"
           for arch in amd64 arm64; do
+            # The index holds one manifest per platform, plus the attestations. Docker's image store cannot
+            # keep two platforms under the index digest, so each platform is pulled by its own digest.
+            manifest=$(docker buildx imagetools inspect "$index" --raw \
+              | jq -r --arg arch "$arch" '.manifests[] | select(.platform.os == "linux" and .platform.architecture == $arch) | .digest')
+            if [ -z "$manifest" ]; then
+              echo "::error title=No linux/${arch} image::the index ${DIGEST} has no manifest for linux/${arch}."
+              exit 1
+            fi
+            image="localhost:5000/subactid@${manifest}"
             machine=$(docker run --rm --platform "linux/${arch}" --entrypoint uname "$image" -m)
             case "${arch}:${machine}" in
               amd64:x86_64|arm64:aarch64) ;;
@@ -173,7 +182,7 @@ jobs:
             esac
             # "agent init" needs no configuration, database or identity provider, and starts the runtime.
             docker run --rm --platform "linux/${arch}" "$image" agent init release-smoke --out /tmp
-            echo "linux/${arch} runs on ${machine}"
+            echo "linux/${arch} is ${manifest} and runs on ${machine}"
           done
 
       - name: Report each platform's known vulnerabilities
