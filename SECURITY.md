@@ -35,5 +35,4 @@ Out of scope:
 
 ## Supported versions
 
-Until the first release, security fixes land on `main` only. After that, during 0.x, only the
-latest release receives security fixes.
+During 0.x, only the latest release receives security fixes, as a patch release cut from `main`.

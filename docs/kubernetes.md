@@ -60,10 +60,6 @@ A refresh uses this client to check that the human is still active.
 
 ## Installing
 
-> **Not released.** v0.1.0 has not been tagged, so the chart and the image below are not
-> published. The commands that name `ghcr.io` and version `0.1.0` need a tagged v0.1.0. Install
-> from a working tree as shown further down.
-
 The release publishes the chart to `oci://ghcr.io/subactid/charts` and the image to
 `ghcr.io/subactid/subactid`, with the same version number.
 
@@ -96,8 +92,8 @@ for a production install.
 
 ### Verifying the release
 
-The release workflow signs the chart and the image keylessly with cosign. Once v0.1.0 is released,
-verify both before you install:
+The release workflow signs the chart and the image keylessly with cosign. Verify both before
+you install:
 
 ```sh
 cosign verify ghcr.io/subactid/charts/subactid:0.1.0 \

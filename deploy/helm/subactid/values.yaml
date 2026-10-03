@@ -3,8 +3,8 @@
 # A minimum install needs four values: the issuer URL, the identity provider, and two Secret
 # names. Everything else has a default.
 #
-# The published chart below exists once v0.1.0 is released. Until then, install from a working
-# tree: see docs/kubernetes.md.
+# Each release publishes the chart to oci://ghcr.io/subactid/charts. docs/kubernetes.md has the
+# install steps, including installing from a working tree.
 #
 #   helm install subactid oci://ghcr.io/subactid/charts/subactid --version 0.1.0 \
 #     --set issuer=https://subactid.example.com \
