@@ -1,5 +1,7 @@
 # Subact ID
 
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/subactid/subactid/badge)](https://scorecard.dev/viewer/?uri=github.com/subactid/subactid) [![Release](https://img.shields.io/github/v/release/subactid/subactid?sort=semver)](https://github.com/subactid/subactid/releases/latest)
+
 Subact ID is an agent identity and delegation control plane. It issues short-lived, scoped tokens
 that let an AI agent act on behalf of a specific human, and it records every decision in a
 ledger that names that human.
