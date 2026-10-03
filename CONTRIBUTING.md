@@ -87,6 +87,8 @@ A release is a signed tag:
 
 - runs the whole `ci` workflow on the tagged commit, and publishes nothing unless every job
   passes;
+- after `ci` passes on the tag, waits in **Actions** until a reviewer clicks
+  **Review deployments → Approve and deploy**;
 - takes the version from the tag, which must be `vMAJOR.MINOR.PATCH` or
   `vMAJOR.MINOR.PATCH-prerelease`;
 - builds the image for amd64 and arm64 once, with its SBOM and provenance, into a registry on

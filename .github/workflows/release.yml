@@ -28,6 +28,11 @@ jobs:
     if: github.repository == 'subactid/subactid'
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    # Pauses, once ci has passed, until a reviewer approves the release environment. The approval
+    # is recorded on the run.
+    environment:
+      name: release
+      url: https://github.com/subactid/subactid/releases/tag/${{ github.ref_name }}
     permissions:
       contents: write # the GitHub release and its attached chart
       packages: write # the image and the chart on GHCR
