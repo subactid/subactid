@@ -262,7 +262,8 @@ ingress:
       secretName: ""
 
 # Restricts egress to the identity provider, the database and DNS. Off by default, since the
-# selectors below depend on where those run.
+# selectors below depend on where those run. Turn it on with database and upstream set: with it
+# on and no peers named, the control plane reaches only DNS and never becomes ready.
 networkPolicy:
   enabled: false
   # Where the database is. A selector, a CIDR, or both.
