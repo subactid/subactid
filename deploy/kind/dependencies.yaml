@@ -5,6 +5,22 @@ kind: Namespace
 metadata:
   name: subactid
 ---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-init
+  namespace: subactid
+data:
+  # Run once by the image, as its bootstrap superuser, when it creates the data directory.
+  init.sql: |
+    -- The role the migrate Job and the server run as. It owns the database, so it can apply the
+    -- schema and create the ledger's partitions, and it is not a superuser: Postgres answers every
+    -- privilege check with yes for a superuser, so the UPDATE, DELETE and TRUNCATE the schema
+    -- revokes on the ledger would never read as revoked, and doctor's audit-partitions check
+    -- would fail on a guard that is in place.
+    CREATE ROLE subactid LOGIN PASSWORD 'kind-only';
+    ALTER DATABASE subactid OWNER TO subactid;
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -28,8 +44,10 @@ spec:
           env:
             - name: POSTGRES_DB
               value: subactid
+            # The image's bootstrap account is a superuser. Nothing of Subact ID connects as it; the
+            # server and the migrate Job use the role init.sql creates.
             - name: POSTGRES_USER
-              value: subactid
+              value: postgres
             - name: POSTGRES_PASSWORD
               value: kind-only
           ports:
@@ -43,9 +61,15 @@ spec:
             # From 18 the image keeps its data in a versioned directory under this one.
             - name: data
               mountPath: /var/lib/postgresql
+            - name: init
+              mountPath: /docker-entrypoint-initdb.d
+              readOnly: true
       volumes:
         - name: data
           emptyDir: {}
+        - name: init
+          configMap:
+            name: postgres-init
 ---
 apiVersion: v1
 kind: Service
