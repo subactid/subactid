@@ -107,6 +107,16 @@ cosign verify ghcr.io/subactid/subactid:0.1.0 \
 The identity ends in the tag the workflow ran for, so a signature made by any other run of the
 same workflow, on a branch or by hand, does not verify as a release.
 
+The chart archive attached to the GitHub release comes with a cosign bundle next to it,
+`subactid-0.1.0.tgz.sigstore.json`. To verify a downloaded archive instead of the OCI chart:
+
+```sh
+cosign verify-blob subactid-0.1.0.tgz \
+  --bundle subactid-0.1.0.tgz.sigstore.json \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  --certificate-identity-regexp '^https://github.com/subactid/subactid/\.github/workflows/release\.yml@refs/tags/v'
+```
+
 To run exactly the image that verified, set `image.digest` to its `sha256:` digest, which `cosign
 verify` prints. The chart then pulls by digest and the tag is not used.
 

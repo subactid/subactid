@@ -320,6 +320,20 @@ jobs:
           cosign sign --yes "${CHART_REGISTRY}/subactid@${digest}"
           echo "pushed and signed ${CHART_REGISTRY}/subactid:${VERSION} at ${digest}"
 
+      - name: Sign the chart archive that goes on the release
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          # The archive that was just pushed, signed as a blob with the same identity. Its bundle is
+          # attached to the release next to it: OpenSSF Scorecard's Signed-Releases check reads
+          # release assets only, so the signatures on GHCR do not count there, and ".sigstore.json"
+          # is one of the suffixes it accepts.
+          archive="$RUNNER_TEMP/subactid-${VERSION}.tgz"
+          cosign sign-blob --yes --bundle "${archive}.sigstore.json" "$archive"
+          echo "signed ${archive##*/}, bundle in ${archive##*/}.sigstore.json"
+
       - name: Write the release notes
         shell: bash
         env:
@@ -368,10 +382,11 @@ jobs:
           |---|---|
           | Image | \`${IMAGE}:${VERSION}\` (\`${DIGEST}\`), linux/amd64 and linux/arm64 |
           | Chart | \`oci://${CHART_REGISTRY}/subactid\`, version \`${VERSION}\` |
+          | Chart archive | \`subactid-${VERSION}.tgz\` below, with its cosign bundle \`subactid-${VERSION}.tgz.sigstore.json\` |
 
-          Both are signed keylessly with cosign against this workflow's identity on a release tag,
-          so a signature from any other run of it does not verify. The image carries its SBOM and
-          build provenance as attestations, and a GitHub build provenance attestation.
+          All three are signed keylessly with cosign against this workflow's identity on a release
+          tag, so a signature from any other run of it does not verify. The image carries its SBOM
+          and build provenance as attestations, and a GitHub build provenance attestation.
 
           \`\`\`sh
           cosign verify ${IMAGE}:${VERSION} \\
@@ -379,6 +394,11 @@ jobs:
             --certificate-identity-regexp '^https://github.com/subactid/subactid/\.github/workflows/release\.yml@refs/tags/v'
 
           cosign verify ${CHART_REGISTRY}/subactid:${VERSION} \\
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \\
+            --certificate-identity-regexp '^https://github.com/subactid/subactid/\.github/workflows/release\.yml@refs/tags/v'
+
+          cosign verify-blob subactid-${VERSION}.tgz \\
+            --bundle subactid-${VERSION}.tgz.sigstore.json \\
             --certificate-oidc-issuer https://token.actions.githubusercontent.com \\
             --certificate-identity-regexp '^https://github.com/subactid/subactid/\.github/workflows/release\.yml@refs/tags/v'
 
@@ -400,5 +420,6 @@ jobs:
           set -euo pipefail
           args=(--title "$GITHUB_REF_NAME" --notes-file "$RUNNER_TEMP/notes.md" --verify-tag)
           if [ "$PRERELEASE" = true ]; then args+=(--prerelease); fi
-          # Fails if the release already exists.
-          gh release create "$GITHUB_REF_NAME" "${args[@]}" "$RUNNER_TEMP/subactid-${VERSION}.tgz"
+          # Fails if the release already exists. The assets are the chart archive and its cosign bundle.
+          gh release create "$GITHUB_REF_NAME" "${args[@]}" \
+            "$RUNNER_TEMP/subactid-${VERSION}.tgz" "$RUNNER_TEMP/subactid-${VERSION}.tgz.sigstore.json"
