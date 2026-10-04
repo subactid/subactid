@@ -27,6 +27,11 @@ helm test subactid -n subactid
 The install has the NetworkPolicy enabled. Pods that become ready have reached the database,
 loaded the signing key and fetched Keycloak's keys through it.
 
+Postgres starts with a role of its own for Subact ID, `subactid`, that owns the database and is
+not a superuser. Both database Secrets name it. Postgres answers every privilege check with yes
+for a superuser, so with the image's bootstrap account `doctor` would report the ledger's revoked
+privileges as still held, and `helm test` would fail on a guard that is in place.
+
 Everything here is throwaway. The credentials protect nothing, Postgres and Keycloak keep no
 data past the pod, and `kind delete cluster --name subactid` removes it all.
 
