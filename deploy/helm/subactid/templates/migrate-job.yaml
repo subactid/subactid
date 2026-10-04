@@ -5,8 +5,7 @@ metadata:
   # Includes the revision, so jobs from different upgrades never share a name.
   name: {{ include "subactid.fullname" . }}-migrate-{{ .Release.Revision }}
   labels:
-    {{- include "subactid.labels" . | nindent 4 }}
-    app.kubernetes.io/component: migrate
+    {{- include "subactid.auxiliaryLabels" (dict "context" . "component" "migrate") | nindent 4 }}
   annotations:
     # The only place the schema changes. Runs before the new version starts.
     helm.sh/hook: pre-install,pre-upgrade
@@ -18,7 +17,8 @@ spec:
   template:
     metadata:
       labels:
-        {{- include "subactid.selectorLabels" . | nindent 8 }}
+        # Not the server's selector labels: the Service must never route to this pod.
+        {{- include "subactid.auxiliarySelectorLabels" (dict "context" . "component" "migrate") | nindent 8 }}
         app.kubernetes.io/component: migrate
       {{- with .Values.migrate.podAnnotations }}
       annotations:

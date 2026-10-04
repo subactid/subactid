@@ -20,6 +20,13 @@ spec:
       {{- if ne $from "[]" }}
       from:
         {{- $from | nindent 8 }}
+        {{- if .Values.tests.enabled }}
+        # The helm test pod, which reads /readyz. The policy does not select it, so this is the
+        # one rule that lets it in once ingressFrom names who may connect.
+        - podSelector:
+            matchLabels:
+              {{- include "subactid.auxiliarySelectorLabels" (dict "context" . "component" "test") | nindent 14 }}
+        {{- end }}
       {{- end }}
   # Egress: the database, the identity provider, DNS and whatever extraEgress adds.
   egress:

@@ -38,6 +38,29 @@ app.kubernetes.io/name: {{ include "subactid.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
+{{/*
+Labels for the pods that are not the server: the migrate Job's and the test pod's. They keep the
+release's instance label, so they list with the release, but carry a name of their own, so the
+Service, the PodDisruptionBudget and the NetworkPolicy, which select by name and instance, never
+pick them up: neither pod serves requests, and the policy's egress rules would cut the test pod
+off from the server. Both take a dict with "context" (the root) and "component".
+*/}}
+{{- define "subactid.auxiliarySelectorLabels" -}}
+app.kubernetes.io/name: {{ printf "%s-%s" (include "subactid.name" .context) .component | trunc 63 | trimSuffix "-" }}
+app.kubernetes.io/instance: {{ .context.Release.Name }}
+{{- end }}
+
+{{- define "subactid.auxiliaryLabels" -}}
+helm.sh/chart: {{ include "subactid.chart" .context }}
+{{ include "subactid.auxiliarySelectorLabels" . }}
+{{- if .context.Chart.AppVersion }}
+app.kubernetes.io/version: {{ .context.Chart.AppVersion | quote }}
+{{- end }}
+app.kubernetes.io/managed-by: {{ .context.Release.Service }}
+app.kubernetes.io/part-of: subactid
+app.kubernetes.io/component: {{ .component }}
+{{- end }}
+
 {{- define "subactid.serviceAccountName" -}}
 {{- if .Values.serviceAccount.create }}
 {{- default (include "subactid.fullname" .) .Values.serviceAccount.name }}

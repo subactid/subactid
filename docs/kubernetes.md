@@ -243,6 +243,11 @@ from outside the cluster.
   plane reaches only the database, the identity provider and DNS without one. The audit sink, a
   Shared Signals transmitter on other hosts than the identity provider, an agent registered with
   a `jwks_uri` and an HTTPS proxy each need a rule. An agent with inline keys needs none.
+- **`networkPolicy.ingressFrom`** limits what may reach the control plane's port, for example to
+  the ingress controller's namespace. Empty lets every pod in the cluster connect. The `helm test`
+  pod is let in either way, since it reads `/readyz`. It and the migrate Job's pod are labelled
+  `app.kubernetes.io/name: subactid-test` and `subactid-migrate` rather than `subactid`, so the
+  Service never routes to them and the policy's egress rules do not apply to them.
 
 ## What the chart refuses
 
