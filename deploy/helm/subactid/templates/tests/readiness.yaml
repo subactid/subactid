@@ -4,8 +4,9 @@ kind: Pod
 metadata:
   name: {{ include "subactid.fullname" . }}-test-readiness
   labels:
-    {{- include "subactid.labels" . | nindent 4 }}
-    app.kubernetes.io/component: test
+    # Not the server's labels: the Service must never route to this pod, and the NetworkPolicy
+    # must not select it, or its egress rules would keep it from the server.
+    {{- include "subactid.auxiliaryLabels" (dict "context" . "component" "test") | nindent 4 }}
   annotations:
     helm.sh/hook: test
     helm.sh/hook-delete-policy: before-hook-creation
