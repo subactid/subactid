@@ -90,6 +90,13 @@ helm install subactid deploy/helm/subactid -n subactid \
 [`deploy/kubernetes/values.yaml`](../deploy/kubernetes/values.yaml) is an annotated values file
 for a production install.
 
+The NetworkPolicy is off by default, because its egress rules need to know where the database
+and the identity provider run. A production install turns it on and names them: set
+`networkPolicy.enabled: true` with `networkPolicy.database` and `networkPolicy.upstream`, as
+selectors or address ranges, and `networkPolicy.ingressFrom` for what may reach the control
+plane. The production values file above shows all three. With the policy on and no peers named,
+the control plane reaches only DNS and never becomes ready.
+
 ### Verifying the release
 
 The release workflow signs the chart and the image keylessly with cosign. Verify both before
