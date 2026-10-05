@@ -98,7 +98,8 @@ A release is a signed tag:
   signed is the one that was run and scanned;
 - sets `version` and `appVersion` in the chart from the tag, and publishes the chart to
   `oci://ghcr.io/subactid/charts`. Do not edit them in a pull request;
-- signs the image and the chart keylessly with cosign.
+- signs the image and the chart keylessly with cosign, and attaches the chart archive to the
+  GitHub release with a cosign bundle next to it.
 
 A prerelease tag such as `v0.2.0-rc.1` is published only under its own version. It does not
 move `latest` or the major.minor tag.
