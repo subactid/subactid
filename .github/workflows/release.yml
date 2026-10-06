@@ -342,7 +342,9 @@ jobs:
         run: |
           set -euo pipefail
           tag="$GITHUB_REF_NAME"
-          previous=$(git describe --tags --abbrev=0 "${tag}^" 2>/dev/null || true)
+          # The last stable release, skipping prerelease tags, so a candidate and the release it
+          # leads to both list everything since the last stable release.
+          previous=$(git describe --tags --abbrev=0 --exclude 'v*-*' "${tag}^" 2>/dev/null || true)
           if [ -n "$previous" ]; then
             range="${previous}..${tag}"
             since="Changes since ${previous}"
