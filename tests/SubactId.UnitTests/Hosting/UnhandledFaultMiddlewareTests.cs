@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Npgsql;
 using SubactId.Server.Hosting;
@@ -100,5 +101,33 @@ public class UnhandledFaultMiddlewareTests
         await RunAsync(context, new PostgresException("duplicate key", "ERROR", "ERROR", "23505"));
 
         Assert.Equal(StatusCodes.Status500InternalServerError, context.Response.StatusCode);
+    }
+
+    [Fact]
+    public async Task The_log_line_cannot_be_forged_by_the_request()
+    {
+        var logger = new RecordingLogger();
+        var context = Request("/oauth2/token\r\n[forged] a second line");
+        context.Request.Method = "POST\nGET";
+
+        await new UnhandledFaultMiddleware(_ => throw new InvalidOperationException("a bug"), logger).InvokeAsync(context);
+
+        var line = Assert.Single(logger.Lines);
+        Assert.DoesNotContain('\r', line);
+        Assert.DoesNotContain('\n', line);
+        Assert.Contains("POST?GET /oauth2/token??[forged] a second line", line, StringComparison.Ordinal);
+    }
+
+    private sealed class RecordingLogger : ILogger<UnhandledFaultMiddleware>
+    {
+        public List<string> Lines { get; } = [];
+
+        public IDisposable? BeginScope<TState>(TState state)
+            where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
+            Lines.Add(formatter(state, exception));
     }
 }
