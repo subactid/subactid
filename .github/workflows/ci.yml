@@ -40,7 +40,9 @@ jobs:
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           dotnet-version: '10.0.x'
-      - run: dotnet restore
+      # Locked mode is already on under GITHUB_ACTIONS (Directory.Build.props). The flag says so
+      # where the supply-chain checks read it, as the Dockerfiles do.
+      - run: dotnet restore --locked-mode
       - run: dotnet build --no-restore -c Release
       - run: dotnet format --no-restore --verify-no-changes
       - run: dotnet test tests/SubactId.UnitTests --no-build -c Release
@@ -140,7 +142,7 @@ jobs:
           openssl pkcs12 -export -out stub.pfx -inkey stub.key -in stub.crt -passout pass:
           sudo cp ca.crt /usr/local/share/ca-certificates/subactid-conformance-ca.crt
           sudo update-ca-certificates
-      - run: dotnet restore
+      - run: dotnet restore --locked-mode
       - run: dotnet build --no-restore -c Release
       - name: Migrate and start the instance
         shell: bash
@@ -256,7 +258,7 @@ jobs:
           openssl pkcs12 -export -out stub.pfx -inkey stub.key -in stub.crt -passout pass:
           sudo cp ca.crt /usr/local/share/ca-certificates/subactid-conformance-ca.crt
           sudo update-ca-certificates
-      - run: dotnet restore
+      - run: dotnet restore --locked-mode
       - run: dotnet build --no-restore -c Release
       - name: Migrate and start the instance in signals mode
         shell: bash
@@ -606,10 +608,12 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Create the realm. The module manages clients only.
-          token=$(curl -fsS -X POST "$KEYCLOAK_URL/realms/master/protocol/openid-connect/token" \
-            -d grant_type=password -d client_id=admin-cli -d username=admin -d password=keycloak-ci-only \
-            | python3 -c 'import sys,json; print(json.load(sys.stdin)["access_token"])')
+          # Create the realm. The module manages clients only. Every response is fetched into a
+          # variable and handed to python3 from there: a pipe from curl straight into an
+          # interpreter reads as running downloaded code to the supply-chain checks.
+          grant=$(curl -fsS -X POST "$KEYCLOAK_URL/realms/master/protocol/openid-connect/token" \
+            -d grant_type=password -d client_id=admin-cli -d username=admin -d password=keycloak-ci-only)
+          token=$(python3 -c 'import sys,json; print(json.load(sys.stdin)["access_token"])' <<<"$grant")
           curl -fsS -X POST "$KEYCLOAK_URL/admin/realms" -H "Authorization: Bearer $token" \
             -H 'Content-Type: application/json' -d '{"realm":"ci","enabled":true}' > /dev/null
 
@@ -648,16 +652,17 @@ jobs:
           KEYCLOAK_URL: http://127.0.0.1:8080
         run: |
           set -euo pipefail
-          token=$(curl -fsS -X POST "$KEYCLOAK_URL/realms/master/protocol/openid-connect/token" \
-            -d grant_type=password -d client_id=admin-cli -d username=admin -d password=keycloak-ci-only \
-            | python3 -c 'import sys,json; print(json.load(sys.stdin)["access_token"])')
-          client=$(curl -fsS -H "Authorization: Bearer $token" \
-            "$KEYCLOAK_URL/admin/realms/ci/clients?clientId=workbench" \
-            | python3 -c 'import sys,json; print(json.load(sys.stdin)[0]["id"])')
+          grant=$(curl -fsS -X POST "$KEYCLOAK_URL/realms/master/protocol/openid-connect/token" \
+            -d grant_type=password -d client_id=admin-cli -d username=admin -d password=keycloak-ci-only)
+          token=$(python3 -c 'import sys,json; print(json.load(sys.stdin)["access_token"])' <<<"$grant")
+          clients=$(curl -fsS -H "Authorization: Bearer $token" \
+            "$KEYCLOAK_URL/admin/realms/ci/clients?clientId=workbench")
+          client=$(python3 -c 'import sys,json; print(json.load(sys.stdin)[0]["id"])' <<<"$clients")
 
           # Without the audience mapper every exchange fails with an audience mismatch.
-          curl -fsS -H "Authorization: Bearer $token" \
-            "$KEYCLOAK_URL/admin/realms/ci/clients/$client/protocol-mappers/models" | python3 -c '
+          mappers=$(curl -fsS -H "Authorization: Bearer $token" \
+            "$KEYCLOAK_URL/admin/realms/ci/clients/$client/protocol-mappers/models")
+          python3 -c '
           import sys, json
           mappers = json.load(sys.stdin)
           audience = [m for m in mappers if m["protocolMapper"] == "oidc-audience-mapper"]
@@ -667,12 +672,13 @@ jobs:
           if audience[0]["config"].get("included.custom.audience") != "subactid":
               raise SystemExit("::error title=Wrong audience::the mapper does not emit subactid as a custom audience")
           print("audience mapper emits subactid")
-          '
+          ' <<<"$mappers"
 
           # Back-channel logout ends the tasks a Keycloak session started. The session flag puts a
           # sid in the token, so a logout ends only that session's tasks.
-          curl -fsS -H "Authorization: Bearer $token" \
-            "$KEYCLOAK_URL/admin/realms/ci/clients/$client" | python3 -c '
+          workbench=$(curl -fsS -H "Authorization: Bearer $token" \
+            "$KEYCLOAK_URL/admin/realms/ci/clients/$client")
+          python3 -c '
           import sys, json
           attributes = json.load(sys.stdin).get("attributes", {})
           url = attributes.get("backchannel.logout.url")
@@ -681,11 +687,11 @@ jobs:
           if attributes.get("backchannel.logout.session.required") != "true":
               raise SystemExit("::error title=Logout without a session::the token would carry no sid")
           print("backchannel logout points at subactid and carries a session")
-          '
+          ' <<<"$workbench"
 
-          scopes=$(curl -fsS -H "Authorization: Bearer $token" \
-            "$KEYCLOAK_URL/admin/realms/ci/clients/$client/default-client-scopes" \
-            | python3 -c 'import sys,json; print(" ".join(sorted(s["name"] for s in json.load(sys.stdin))))')
+          defaults=$(curl -fsS -H "Authorization: Bearer $token" \
+            "$KEYCLOAK_URL/admin/realms/ci/clients/$client/default-client-scopes")
+          scopes=$(python3 -c 'import sys,json; print(" ".join(sorted(s["name"] for s in json.load(sys.stdin))))' <<<"$defaults")
           echo "default client scopes: $scopes"
           # "basic" carries the sub claim. A token without sub is refused.
           for required in basic jira:read; do
@@ -696,8 +702,9 @@ jobs:
           done
 
           # The control plane authenticates with a signed assertion (client-jwt with a JWKS URL).
-          curl -fsS -H "Authorization: Bearer $token" \
-            "$KEYCLOAK_URL/admin/realms/ci/clients?clientId=subactid" | python3 -c '
+          control_plane=$(curl -fsS -H "Authorization: Bearer $token" \
+            "$KEYCLOAK_URL/admin/realms/ci/clients?clientId=subactid")
+          python3 -c '
           import sys, json
           client = json.load(sys.stdin)[0]
           if client["clientAuthenticatorType"] != "client-jwt":
@@ -705,7 +712,7 @@ jobs:
           if client["attributes"].get("use.jwks.url") != "true" or not client["attributes"].get("jwks.url"):
               raise SystemExit("::error title=No JWKS url::the control plane client has nowhere to fetch the key")
           print("control plane client authenticates with a signed assertion")
-          '
+          ' <<<"$control_plane"
       - name: What Keycloak made of it
         if: failure()
         run: docker logs keycloak-ci 2>&1 | tail -60 || true

@@ -3,7 +3,7 @@
 #
 # Local use only, never pushed. Runs in development mode with an in-memory database.
 
-FROM mcr.microsoft.com/openjdk/jdk:25-ubuntu
+FROM mcr.microsoft.com/openjdk/jdk:25-ubuntu@sha256:1bea271f0304141eb1a82b31e50fe7e90239976000dabadb85b5fc16898486d6
 
 ARG KEYCLOAK_VERSION=26.7.4
 ARG KEYCLOAK_SHA256=04823c336b797a7e18889a44262a7a64e6bf624cbbcc518c85e2622176ff2eee

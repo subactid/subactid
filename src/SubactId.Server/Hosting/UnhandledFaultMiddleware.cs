@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using SubactId.Core.Validation;
 using SubactId.Server.Contracts;
 using SubactId.Storage.Ef;
@@ -22,7 +23,7 @@ namespace SubactId.Server.Hosting;
 /// </remarks>
 /// <param name="next">The rest of the pipeline.</param>
 /// <param name="logger">Where the fault is written.</param>
-public sealed class UnhandledFaultMiddleware(RequestDelegate next, ILogger<UnhandledFaultMiddleware> logger)
+public sealed partial class UnhandledFaultMiddleware(RequestDelegate next, ILogger<UnhandledFaultMiddleware> logger)
 {
     /// <summary>
     /// How long a caller is told to wait when the database is unreachable. Long enough to cover
@@ -47,7 +48,7 @@ public sealed class UnhandledFaultMiddleware(RequestDelegate next, ILogger<Unhan
         {
             // Log the path only, never the query string, which can carry a token. The exception
             // details are logged, not returned.
-            logger.LogWarning(bad, "Unreadable request body on {Method} {Path}.", context.Request.Method, context.Request.Path.Value);
+            logger.LogWarning(bad, "Unreadable request body on {Method} {Path}.", Logged(context.Request.Method), Logged(context.Request.Path.Value));
 
             // A JSON body with a value of the wrong type or format for one member, or a member the
             // request does not have, is rejected per field, like any other invalid value (spec
@@ -70,12 +71,12 @@ public sealed class UnhandledFaultMiddleware(RequestDelegate next, ILogger<Unhan
         }
         catch (Exception exception) when (exception is not OperationCanceledException && IsStorageUnavailable(context, exception))
         {
-            logger.LogWarning(exception, "The database could not be reached answering {Method} {Path}.", context.Request.Method, context.Request.Path.Value);
+            logger.LogWarning(exception, "The database could not be reached answering {Method} {Path}.", Logged(context.Request.Method), Logged(context.Request.Path.Value));
             await TemporarilyUnavailable.WriteAsync(context, StorageRetryAfter, "The control plane's database is unavailable or too busy to answer. Retry after the interval in Retry-After.");
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            logger.LogError(exception, "Unhandled fault answering {Method} {Path}.", context.Request.Method, context.Request.Path.Value);
+            logger.LogError(exception, "Unhandled fault answering {Method} {Path}.", Logged(context.Request.Method), Logged(context.Request.Path.Value));
             await WriteProblemAsync(context, StatusCodes.Status500InternalServerError, "The request could not be handled.");
         }
     }
@@ -101,6 +102,17 @@ public sealed class UnhandledFaultMiddleware(RequestDelegate next, ILogger<Unhan
         member = end >= 0 ? member[..end] : member;
         return member.Length is > 0 and <= MaxMemberLength ? member : null;
     }
+
+    /// <summary>
+    /// A request value as the log carries it. Every control character, line breaks included, is
+    /// replaced, so a crafted method or path cannot forge a log line or drive a terminal.
+    /// </summary>
+    /// <param name="value">The method or path as the client sent it.</param>
+    private static string? Logged(string? value) => value is null ? null : ControlCharacters().Replace(value, "?");
+
+    // \p{Cc} is what char.IsControl matches: the C0 and C1 controls, CR and LF among them.
+    [GeneratedRegex(@"\p{Cc}", RegexOptions.CultureInvariant)]
+    private static partial Regex ControlCharacters();
 
     private static bool IsStorageUnavailable(HttpContext context, Exception exception) =>
         context.RequestServices?.GetService<IStorageFaults>() is { } faults && faults.IsUnavailable(exception);

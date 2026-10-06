@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Scans a container image for known vulnerabilities with Trivy.
 #
-#   scan-image.sh report <image> <sarif-out>   writes every finding as SARIF, and never fails on one
+#   scan-image.sh report <image> <sarif-out>   writes every finding that has a fix as SARIF, and never fails on one
 #   scan-image.sh gate <image>                 fails on a high or critical finding that has a fix
 #   scan-image.sh warn <image>                 the same check, as a warning that does not fail
 #
@@ -10,6 +10,9 @@
 # linux/arm64) to choose which one is scanned. Trivy runs from its own image, pinned in
 # .github/tools/Dockerfile, so no scanner is installed on the runner. Every mode shares one
 # vulnerability database download per job.
+#
+# A finding with no fixed version is left out of every mode. Rebuilding cannot act on one, and it
+# is reported the moment its fix is published, which is when there is something to do.
 set -euo pipefail
 
 TRIVY=$("$(dirname "$0")/tool-image.sh" trivy)
@@ -34,12 +37,11 @@ case "$mode" in
   report)
     out="${3:?a path for the SARIF report}"
     # Relative to the working directory, which the container sees as /work.
-    trivy image --quiet --scanners vuln --format sarif --output "/work/$out" "$image"
+    trivy image --quiet --scanners vuln --ignore-unfixed --format sarif --output "/work/$out" "$image"
     echo "wrote $out"
     ;;
   gate)
-    # Only findings with a fixed version fail the run: a finding with no fix cannot be acted on
-    # by rebuilding, and is still in the report.
+    # Only a high or critical finding fails the run; the report mode covers every severity.
     trivy image --quiet --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 "$image"
     ;;
   warn)
