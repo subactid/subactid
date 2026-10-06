@@ -6,7 +6,7 @@
 # Each release publishes the chart to oci://ghcr.io/subactid/charts. docs/kubernetes.md has the
 # install steps, including installing from a working tree.
 #
-#   helm install subactid oci://ghcr.io/subactid/charts/subactid --version 0.1.0 \
+#   helm install subactid oci://ghcr.io/subactid/charts/subactid --version 0.1.1 \
 #     --set issuer=https://subactid.example.com \
 #     --set upstream.issuer=https://kc.example.com/realms/corp \
 #     --set database.existingSecret=subactid-db \
