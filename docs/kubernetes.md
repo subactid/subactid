@@ -66,7 +66,7 @@ The release publishes the chart to `oci://ghcr.io/subactid/charts` and the image
 Install:
 
 ```sh
-helm install subactid oci://ghcr.io/subactid/charts/subactid --version 0.1.0 -n subactid \
+helm install subactid oci://ghcr.io/subactid/charts/subactid --version 0.1.1 -n subactid \
   --set issuer=https://subactid.example.com \
   --set upstream.issuer=https://kc.example.com/realms/corp \
   --set database.existingSecret=subactid-db \
@@ -103,10 +103,10 @@ The release workflow signs the chart and the image keylessly with cosign. Verify
 you install:
 
 ```sh
-cosign verify ghcr.io/subactid/charts/subactid:0.1.0 \
+cosign verify ghcr.io/subactid/charts/subactid:0.1.1 \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   --certificate-identity-regexp '^https://github.com/subactid/subactid/\.github/workflows/release\.yml@refs/tags/v'
-cosign verify ghcr.io/subactid/subactid:0.1.0 \
+cosign verify ghcr.io/subactid/subactid:0.1.1 \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   --certificate-identity-regexp '^https://github.com/subactid/subactid/\.github/workflows/release\.yml@refs/tags/v'
 ```
@@ -115,11 +115,11 @@ The identity ends in the tag the workflow ran for, so a signature made by any ot
 same workflow, on a branch or by hand, does not verify as a release.
 
 The chart archive attached to the GitHub release comes with a cosign bundle next to it,
-`subactid-0.1.0.tgz.sigstore.json`. To verify a downloaded archive instead of the OCI chart:
+`subactid-0.1.1.tgz.sigstore.json`. To verify a downloaded archive instead of the OCI chart:
 
 ```sh
-cosign verify-blob subactid-0.1.0.tgz \
-  --bundle subactid-0.1.0.tgz.sigstore.json \
+cosign verify-blob subactid-0.1.1.tgz \
+  --bundle subactid-0.1.1.tgz.sigstore.json \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   --certificate-identity-regexp '^https://github.com/subactid/subactid/\.github/workflows/release\.yml@refs/tags/v'
 ```
@@ -130,13 +130,13 @@ verify` prints. The chart then pulls by digest and the tag is not used.
 The image carries its SBOM and build provenance as attestations:
 
 ```sh
-docker buildx imagetools inspect ghcr.io/subactid/subactid:0.1.0 --format '{{ json .SBOM }}'
+docker buildx imagetools inspect ghcr.io/subactid/subactid:0.1.1 --format '{{ json .SBOM }}'
 ```
 
 GitHub records its own build provenance for the same digest. It verifies with the GitHub CLI:
 
 ```sh
-gh attestation verify oci://ghcr.io/subactid/subactid:0.1.0 --owner subactid
+gh attestation verify oci://ghcr.io/subactid/subactid:0.1.1 --owner subactid
 ```
 
 ## Required values

@@ -1,7 +1,7 @@
 # Example values for a production install. Copy it, change the names, and delete what you do
 # not use:
 #
-#     helm install subactid oci://ghcr.io/subactid/charts/subactid --version 0.1.0 -n subactid -f values.yaml
+#     helm install subactid oci://ghcr.io/subactid/charts/subactid --version 0.1.1 -n subactid -f values.yaml
 #
 # To install from a working tree instead, pass the chart directory, deploy/helm/subactid, in
 # place of the oci:// reference.
@@ -16,7 +16,7 @@ issuer: https://subactid.example.com
 
 image:
   repository: ghcr.io/subactid/subactid
-  tag: "0.1.0"
+  tag: "0.1.1"
   # To pin the exact image the release signed, set its digest; the tag is then not used.
   # digest: "sha256:..."
 
