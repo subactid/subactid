@@ -24,7 +24,8 @@ you have them.
 
 In scope: this repository, which is the control plane: token issuance and validation, the audit
 ledger, the Helm chart and the reference deployment files. The SDKs live in a separate
-repository, `subactid-sdk` (not public), and are covered by that repository's security policy.
+repository, [`subactid-sdk`](https://github.com/subactid/subactid-sdk), and are covered by that
+repository's security policy.
 
 Out of scope:
 
