@@ -149,8 +149,8 @@ above once first: the Postgres 18 image refuses to start on the old volume.
 | `../samples/SubactId.Sample.Portal` | The portal: sign-in, the two tokens, and the ledger |
 
 The sample tool server uses only the .NET platform, so every check it makes is visible in its
-code. For TypeScript, `@subactid/mcp` in the `subactid-sdk` repository (not published to npm) puts an
-MCP server behind the same checks.
+code. For TypeScript, `@subactid/mcp` from npm (`npm install @subactid/mcp`) puts an MCP server
+behind the same checks.
 
 ## Limits of the demo
 

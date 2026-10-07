@@ -171,9 +171,14 @@ the chart to GHCR, signed with cosign, with an SBOM attached to the image.
 
 ## SDKs
 
-The client libraries live in a separate repository, `subactid-sdk`, which is not public, and are
-licensed Apache-2.0. The packages are not published to npm, so none of them can be installed from
-a registry:
+The client libraries live in a separate repository, https://github.com/subactid/subactid-sdk, and
+are licensed Apache-2.0. Install them from npm:
+
+```sh
+npm install @subactid/client
+npm install @subactid/server
+npm install @subactid/mcp
+```
 
 - `@subactid/client`, for the agent: exchange, proactive refresh and typed errors.
 - `@subactid/server` and `@subactid/mcp`, for the tool server: verify the token, enforce per-route
