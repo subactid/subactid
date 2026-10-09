@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Scans a container image for known vulnerabilities with Trivy.
 #
-#   scan-image.sh report <image> <sarif-out>   writes every finding that has a fix as SARIF, and never fails on one
-#   scan-image.sh gate <image>                 fails on a high or critical finding that has a fix
-#   scan-image.sh warn <image>                 the same check, as a warning that does not fail
+#   scan-image.sh report <image> <sarif-out>           writes every finding that has a fix as SARIF, and never fails on one
+#   scan-image.sh report-unfixed <image> <sarif-out>   writes every finding that has no fix as SARIF, and never fails on one
+#   scan-image.sh gate <image>                         fails on a high or critical finding that has a fix
+#   scan-image.sh warn <image>                         the same check, as a warning that does not fail
 #
 # The image may be local (read through the Docker socket) or in a registry, including one on the
 # runner itself. For a multi-platform image in a registry, set TRIVY_PLATFORM (for example
@@ -11,13 +12,15 @@
 # .github/tools/Dockerfile, so no scanner is installed on the runner. Every mode shares one
 # vulnerability database download per job.
 #
-# A finding with no fixed version is left out of every mode. Rebuilding cannot act on one, and it
-# is reported the moment its fix is published, which is when there is something to do.
+# A finding with no fixed version is left out of every mode but report-unfixed. Rebuilding cannot
+# act on one, and the other modes report it the moment its fix is published, which is when there
+# is something to do. Until then it is on record through report-unfixed, which the weekly scan of
+# the published image uploads under its own code-scanning category and which gates nothing.
 set -euo pipefail
 
 TRIVY=$("$(dirname "$0")/tool-image.sh" trivy)
 
-mode="${1:?usage: scan-image.sh report <image> <sarif-out> | gate <image> | warn <image>}"
+mode="${1:?usage: scan-image.sh report <image> <sarif-out> | report-unfixed <image> <sarif-out> | gate <image> | warn <image>}"
 image="${2:?an image to scan}"
 
 cache="${RUNNER_TEMP:-/tmp}/trivy-cache"
@@ -38,6 +41,13 @@ case "$mode" in
     out="${3:?a path for the SARIF report}"
     # Relative to the working directory, which the container sees as /work.
     trivy image --quiet --scanners vuln --ignore-unfixed --format sarif --output "/work/$out" "$image"
+    echo "wrote $out"
+    ;;
+  report-unfixed)
+    out="${3:?a path for the SARIF report}"
+    # The complement of report: --ignore-unfixed is Trivy's shorthand for ignoring every status
+    # but fixed, so ignoring fixed alone leaves exactly the findings report leaves out.
+    trivy image --quiet --scanners vuln --ignore-status fixed --format sarif --output "/work/$out" "$image"
     echo "wrote $out"
     ;;
   gate)
