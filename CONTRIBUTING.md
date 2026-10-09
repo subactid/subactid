@@ -104,8 +104,15 @@ A release is a signed tag:
 A prerelease tag such as `v0.2.0-rc.1` is published only under its own version. It does not
 move `latest` or the major.minor tag.
 
-The `image-scan` workflow scans the published `latest` image every week. When it fails, the
-release ships a fixable vulnerability: rebuild on the patched base image and cut a patch release.
+The `image-scan` workflow checks the latest stable release on GHCR every week, and scans it.
+Before the scan, the version tag, the major.minor tag and `latest` must resolve to one digest,
+that digest and the chart at that version must verify with cosign as signed by the release run
+for that tag, and the image must verify with `gh attestation verify`. A failure there means GHCR
+does not serve what the release signed, the log names which tag or artefact differs, and nothing
+is scanned. The scan is then of that digest, not of a tag. When it fails, the release ships a
+fixable vulnerability: rebuild on the patched base image and cut a patch release. A finding with
+no fix fails nothing; it is reported to code scanning under the `published-image-unfixed`
+category, so that it is on record.
 
 A version is published once. Re-running the release for a tag that is already published stops
 before pushing anything.

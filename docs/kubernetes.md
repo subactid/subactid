@@ -139,6 +139,13 @@ GitHub records its own build provenance for the same digest. It verifies with th
 gh attestation verify oci://ghcr.io/subactid/subactid:0.1.1 --owner subactid
 ```
 
+The `image-scan` workflow repeats these checks every week against what GHCR serves for the
+latest stable release: its version tag, its major.minor tag and `latest` must be one digest, that
+digest and the chart at that version must verify as signed by the release run for that tag, and
+the image must carry its build provenance. Only then is the digest scanned. A tag moved on GHCR
+fails that run and the log names the tag. It is a check on the registry, not on your cluster, so
+still verify what you install.
+
 ## Required values
 
 The chart fails to render, with a message naming the missing value, when one of these is unset:
